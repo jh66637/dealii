@@ -596,7 +596,8 @@ namespace CGALWrappers
     tria.insert(pts_hex.begin(), pts_hex.end());
 
     // Subdivide quad into triangles
-    Delaunay tria_quad(pts_quad.begin(), pts_quad.end());
+    Triangulation3_exact tria_quad;
+    tria_quad.insert(pts_quad.begin(), pts_quad.end());
 
     for (const auto &c : tria.finite_cell_handles())
       {
@@ -604,6 +605,7 @@ namespace CGALWrappers
 
         for (const auto f : tria_quad.finite_face_handles())
           {
+        for (const auto f : tria_quad.finite_facets())
             if (CGAL::do_intersect(tet, tria_quad.triangle(f)))
               {
                 const auto intersection =
