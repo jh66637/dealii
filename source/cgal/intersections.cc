@@ -602,6 +602,7 @@ namespace CGALWrappers
         const auto &tet = tria.tetrahedron(c);
 
         for (const auto f : tria_quad.finite_facets())
+
           {
             if (CGAL::do_intersect(tet, tria_quad.triangle(f)))
               {
@@ -632,6 +633,7 @@ namespace CGALWrappers
                       {
                         const auto triangle = tria_inter.triangle(*it);
                         if (CGAL::to_double(triangle.squared_area()) >
+
                             tol * tol)
                           {
                             std::array<Point<3>, 3> verts = {

@@ -30,7 +30,6 @@
 
 #include <deal.II/fe/fe.h>
 #include <deal.II/fe/mapping.h>
-#include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
@@ -503,7 +502,7 @@ public:
      * Such an example is "local time stepping", where cells of different
      * caterogries progress with different time-step sizes and, as a
      * consequence, can only processed together with cells with the same
-     * cateogry.
+     * category.
      *
      * This array is accessed by the number given by cell->active_cell_index()
      * when working on the active cells (with
@@ -1611,6 +1610,10 @@ public:
    * this method can be used to query the boundary id of a given face in the
    * faces' own sorting by lanes in a VectorizedArray. Only valid for an index
    * indicating a boundary face.
+   *
+   * @note Alternatively to this function, you can use
+   * FEFaceEvaluation::boundary_id() to get the same information if a
+   * FEFaceEvaluation object has been set up already.
    */
   types::boundary_id
   get_boundary_id(const unsigned int face_batch_index) const;
@@ -1664,6 +1667,16 @@ public:
   std::pair<int, int>
   get_cell_level_and_index(const unsigned int cell_batch_index,
                            const unsigned int lane_index) const;
+
+  /**
+   * Get MatrixFree index associated to a deal.II @p cell. To get
+   * the actual cell batch index and lane, do the postprocessing
+   * `index / VectorizedArrayType::size()` and `index %
+   * VectorizedArrayType::size()`.
+   */
+  unsigned int
+  get_matrix_free_cell_index(
+    const typename Triangulation<dim>::cell_iterator &cell) const;
 
   /**
    * Return the cell iterator in deal.II speak to an interior/exterior cell of
@@ -2060,6 +2073,11 @@ private:
    */
   std::vector<std::pair<unsigned int, unsigned int>> cell_level_index;
 
+  /**
+   * Conversion from deal.II index (active or level index) to MatrixFree index
+   * (inverse of cell_level_index).
+   */
+  std::vector<unsigned int> mf_cell_indices;
 
   /**
    * For discontinuous Galerkin, the cell_level_index includes cells that are

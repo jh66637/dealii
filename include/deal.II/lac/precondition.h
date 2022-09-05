@@ -20,10 +20,10 @@
 
 #include <deal.II/base/cuda_size.h>
 #include <deal.II/base/memory_space.h>
+#include <deal.II/base/mutex.h>
 #include <deal.II/base/parallel.h>
 #include <deal.II/base/smartpointer.h>
 #include <deal.II/base/template_constraints.h>
-#include <deal.II/base/thread_management.h>
 #include <deal.II/base/utilities.h>
 
 #include <deal.II/lac/affine_constraints.h>
@@ -525,6 +525,36 @@ protected:
 
 namespace internal
 {
+  // a helper type-trait that leverage SFINAE to figure out if MatrixType has
+  // ... MatrixType::vmult(VectorType &, const VectorType&,
+  // std::function<...>, std::function<...>) const
+  template <typename MatrixType, typename VectorType>
+  using vmult_functions_t = decltype(std::declval<MatrixType const>().vmult(
+    std::declval<VectorType &>(),
+    std::declval<const VectorType &>(),
+    std::declval<
+      const std::function<void(const unsigned int, const unsigned int)> &>(),
+    std::declval<
+      const std::function<void(const unsigned int, const unsigned int)> &>()));
+
+  template <typename MatrixType,
+            typename VectorType,
+            typename PreconditionerType>
+  constexpr bool has_vmult_with_std_functions =
+    is_supported_operation<vmult_functions_t, MatrixType, VectorType> &&
+      std::is_same<PreconditionerType, DiagonalMatrix<VectorType>>::value &&
+    (std::is_same<VectorType,
+                  dealii::Vector<typename VectorType::value_type>>::value ||
+     std::is_same<
+       VectorType,
+       LinearAlgebra::distributed::Vector<typename VectorType::value_type,
+                                          MemorySpace::Host>>::value);
+
+
+  template <typename MatrixType, typename VectorType>
+  constexpr bool has_vmult_with_std_functions_for_precondition =
+    is_supported_operation<vmult_functions_t, MatrixType, VectorType>;
+
   namespace PreconditionRelaxation
   {
     template <typename T, typename VectorType>
@@ -1016,9 +1046,14 @@ namespace internal
       dst.add(relaxation, tmp);
     }
 
+    // 0) general implementation
     template <typename MatrixType,
               typename PreconditionerType,
-              typename VectorType>
+              typename VectorType,
+              std::enable_if_t<!has_vmult_with_std_functions_for_precondition<
+                                 PreconditionerType,
+                                 VectorType>,
+                               int> * = nullptr>
     void
     step_operations(const MatrixType &        A,
                     const PreconditionerType &preconditioner,
@@ -1049,47 +1084,249 @@ namespace internal
         }
     }
 
+    // 1) specialized implementation with a preconditioner that accepts
+    // ranges
+    template <typename MatrixType,
+              typename PreconditionerType,
+              typename VectorType,
+              std::enable_if_t<has_vmult_with_std_functions_for_precondition<
+                                 PreconditionerType,
+                                 VectorType>,
+                               int> * = nullptr>
+    void
+    step_operations(const MatrixType &        A,
+                    const PreconditionerType &preconditioner,
+                    VectorType &              dst,
+                    const VectorType &        src,
+                    const double              relaxation,
+                    VectorType &              tmp,
+                    VectorType &,
+                    const unsigned int i,
+                    const bool         transposed)
+    {
+      using Number = typename VectorType::value_type;
+
+      if (i == 0)
+        {
+          Number *      dst_ptr = dst.begin();
+          const Number *src_ptr = src.begin();
+
+          preconditioner.vmult(
+            dst,
+            src,
+            [&](const unsigned int start_range, const unsigned int end_range) {
+              // zero 'dst' before running the vmult operation
+              if (end_range > start_range)
+                std::memset(dst.begin() + start_range,
+                            0,
+                            sizeof(Number) * (end_range - start_range));
+            },
+            [&](const unsigned int start_range, const unsigned int end_range) {
+              if (relaxation == 1.0)
+                return; // nothing to do
+
+              const auto src_ptr = src.begin();
+              const auto dst_ptr = dst.begin();
+
+              DEAL_II_OPENMP_SIMD_PRAGMA
+              for (std::size_t i = start_range; i < end_range; ++i)
+                dst_ptr[i] *= relaxation;
+            });
+        }
+      else
+        {
+          tmp.reinit(src, true);
+
+          Assert(transposed == false, ExcNotImplemented());
+
+          A.vmult(tmp, src);
+
+          preconditioner.vmult(
+            dst,
+            tmp,
+            [&](const unsigned int start_range, const unsigned int end_range) {
+              const auto src_ptr = src.begin();
+              const auto tmp_ptr = tmp.begin();
+
+              if (relaxation == 1.0)
+                {
+                  DEAL_II_OPENMP_SIMD_PRAGMA
+                  for (std::size_t i = start_range; i < end_range; ++i)
+                    tmp_ptr[i] = src_ptr[i] - tmp_ptr[i];
+                }
+              else
+                {
+                  // note: we scale the residual here to be able to add into
+                  // the dst vector, which contains the solution from the last
+                  // iteration
+                  DEAL_II_OPENMP_SIMD_PRAGMA
+                  for (std::size_t i = start_range; i < end_range; ++i)
+                    tmp_ptr[i] = relaxation * (src_ptr[i] - tmp_ptr[i]);
+                }
+            },
+            [&](const unsigned int, const unsigned int) {
+              // nothing to do, since scaling by the relaxation factor
+              // has been done in the pre operation
+            });
+        }
+    }
+
+    // 2) specialized implementation for inverse-diagonal preconditioner
     template <typename MatrixType,
               typename VectorType,
-              std::enable_if_t<!IsBlockVector<VectorType>::value, VectorType>
-                * = nullptr>
+              std::enable_if_t<
+                !IsBlockVector<VectorType>::value &&
+                  !has_vmult_with_std_functions<MatrixType,
+                                                VectorType,
+                                                DiagonalMatrix<VectorType>>,
+                VectorType> * = nullptr>
     void
     step_operations(const MatrixType &                A,
                     const DiagonalMatrix<VectorType> &preconditioner,
                     VectorType &                      dst,
                     const VectorType &                src,
                     const double                      relaxation,
-                    VectorType &                      residual,
+                    VectorType &                      tmp,
                     VectorType &,
                     const unsigned int i,
                     const bool         transposed)
     {
+      using Number = typename VectorType::value_type;
+
       if (i == 0)
         {
-          const auto dst_ptr  = dst.begin();
-          const auto src_ptr  = src.begin();
-          const auto diag_ptr = preconditioner.get_vector().begin();
+          Number *      dst_ptr  = dst.begin();
+          const Number *src_ptr  = src.begin();
+          const Number *diag_ptr = preconditioner.get_vector().begin();
 
-          for (unsigned int i = 0; i < dst.locally_owned_size(); ++i)
-            dst_ptr[i] = relaxation * src_ptr[i] * diag_ptr[i];
+          if (relaxation == 1.0)
+            {
+              DEAL_II_OPENMP_SIMD_PRAGMA
+              for (unsigned int i = 0; i < dst.locally_owned_size(); ++i)
+                dst_ptr[i] = src_ptr[i] * diag_ptr[i];
+            }
+          else
+            {
+              DEAL_II_OPENMP_SIMD_PRAGMA
+              for (unsigned int i = 0; i < dst.locally_owned_size(); ++i)
+                dst_ptr[i] = relaxation * src_ptr[i] * diag_ptr[i];
+            }
         }
       else
         {
-          residual.reinit(src, true);
+          tmp.reinit(src, true);
 
-          const auto dst_ptr      = dst.begin();
-          const auto src_ptr      = src.begin();
-          const auto residual_ptr = residual.begin();
-          const auto diag_ptr     = preconditioner.get_vector().begin();
+          Number *      dst_ptr  = dst.begin();
+          const Number *src_ptr  = src.begin();
+          const Number *tmp_ptr  = tmp.begin();
+          const Number *diag_ptr = preconditioner.get_vector().begin();
 
           if (transposed)
-            A.Tvmult(residual, dst);
+            Tvmult(A, tmp, dst);
           else
-            A.vmult(residual, dst);
+            A.vmult(tmp, dst);
 
-          for (unsigned int i = 0; i < dst.locally_owned_size(); ++i)
-            dst_ptr[i] +=
-              relaxation * (src_ptr[i] - residual_ptr[i]) * diag_ptr[i];
+          if (relaxation == 1.0)
+            {
+              DEAL_II_OPENMP_SIMD_PRAGMA
+              for (unsigned int i = 0; i < dst.locally_owned_size(); ++i)
+                dst_ptr[i] += (src_ptr[i] - tmp_ptr[i]) * diag_ptr[i];
+            }
+          else
+            {
+              DEAL_II_OPENMP_SIMD_PRAGMA
+              for (unsigned int i = 0; i < dst.locally_owned_size(); ++i)
+                dst_ptr[i] +=
+                  relaxation * (src_ptr[i] - tmp_ptr[i]) * diag_ptr[i];
+            }
+        }
+    }
+
+    // 3) specialized implementation for inverse-diagonal preconditioner and
+    // matrix that accepts ranges
+    template <typename MatrixType,
+              typename VectorType,
+              std::enable_if_t<
+                !IsBlockVector<VectorType>::value &&
+                  has_vmult_with_std_functions<MatrixType,
+                                               VectorType,
+                                               DiagonalMatrix<VectorType>>,
+                VectorType> * = nullptr>
+    void
+    step_operations(const MatrixType &                A,
+                    const DiagonalMatrix<VectorType> &preconditioner,
+                    VectorType &                      dst,
+                    const VectorType &                src,
+                    const double                      relaxation,
+                    VectorType &                      tmp,
+                    VectorType &,
+                    const unsigned int i,
+                    const bool         transposed)
+    {
+      (void)transposed;
+      using Number = typename VectorType::value_type;
+
+      if (i == 0)
+        {
+          Number *      dst_ptr  = dst.begin();
+          const Number *src_ptr  = src.begin();
+          const Number *diag_ptr = preconditioner.get_vector().begin();
+
+          if (relaxation == 1.0)
+            {
+              DEAL_II_OPENMP_SIMD_PRAGMA
+              for (unsigned int i = 0; i < dst.locally_owned_size(); ++i)
+                dst_ptr[i] = src_ptr[i] * diag_ptr[i];
+            }
+          else
+            {
+              DEAL_II_OPENMP_SIMD_PRAGMA
+              for (unsigned int i = 0; i < dst.locally_owned_size(); ++i)
+                dst_ptr[i] = relaxation * src_ptr[i] * diag_ptr[i];
+            }
+        }
+      else
+        {
+          tmp.reinit(src, true);
+
+          Assert(transposed == false, ExcNotImplemented());
+
+          A.vmult(
+            tmp,
+            dst,
+            [&](const unsigned int start_range, const unsigned int end_range) {
+              // zero 'tmp' before running the vmult operation
+              if (end_range > start_range)
+                std::memset(tmp.begin() + start_range,
+                            0,
+                            sizeof(Number) * (end_range - start_range));
+            },
+            [&](const unsigned int begin, const unsigned int end) {
+              const Number *dst_ptr  = dst.begin();
+              const Number *src_ptr  = src.begin();
+              Number *      tmp_ptr  = tmp.begin();
+              const Number *diag_ptr = preconditioner.get_vector().begin();
+
+              // for efficiency reason, write back to temp_vector that is
+              // already read (avoid read-for-ownership)
+              if (relaxation == 1.0)
+                {
+                  DEAL_II_OPENMP_SIMD_PRAGMA
+                  for (std::size_t i = begin; i < end; ++i)
+                    tmp_ptr[i] =
+                      dst_ptr[i] + (src_ptr[i] - tmp_ptr[i]) * diag_ptr[i];
+                }
+              else
+                {
+                  DEAL_II_OPENMP_SIMD_PRAGMA
+                  for (std::size_t i = begin; i < end; ++i)
+                    tmp_ptr[i] = dst_ptr[i] + relaxation *
+                                                (src_ptr[i] - tmp_ptr[i]) *
+                                                diag_ptr[i];
+                }
+            });
+
+          tmp.swap(dst);
         }
     }
 
@@ -2355,6 +2592,175 @@ namespace internal
       solution.swap(solution_old);
     }
 
+    // generic part for deal.II vectors
+    template <
+      typename Number,
+      typename PreconditionerType,
+      std::enable_if_t<
+        !has_vmult_with_std_functions_for_precondition<
+          PreconditionerType,
+          LinearAlgebra::distributed::Vector<Number, MemorySpace::Host>>,
+        int> * = nullptr>
+    inline void
+    vector_updates(
+      const LinearAlgebra::distributed::Vector<Number, MemorySpace::Host> &rhs,
+      const PreconditionerType &preconditioner,
+      const unsigned int        iteration_index,
+      const double              factor1_,
+      const double              factor2_,
+      LinearAlgebra::distributed::Vector<Number, MemorySpace::Host>
+        &solution_old,
+      LinearAlgebra::distributed::Vector<Number, MemorySpace::Host>
+        &temp_vector1,
+      LinearAlgebra::distributed::Vector<Number, MemorySpace::Host>
+        &temp_vector2,
+      LinearAlgebra::distributed::Vector<Number, MemorySpace::Host> &solution)
+    {
+      const Number factor1        = factor1_;
+      const Number factor1_plus_1 = 1. + factor1_;
+      const Number factor2        = factor2_;
+
+      if (iteration_index == 0)
+        {
+          const auto solution_old_ptr = solution_old.begin();
+
+          // compute t = P^{-1} * (b)
+          preconditioner.vmult(solution_old, rhs);
+
+          // compute x^{n+1} = f_2 * t
+          DEAL_II_OPENMP_SIMD_PRAGMA
+          for (unsigned int i = 0; i < solution_old.locally_owned_size(); ++i)
+            solution_old_ptr[i] = solution_old_ptr[i] * factor2;
+        }
+      else if (iteration_index == 1)
+        {
+          const auto solution_ptr     = solution.begin();
+          const auto solution_old_ptr = solution_old.begin();
+
+          // compute t = P^{-1} * (b-A*x^{n})
+          temp_vector1.sadd(-1.0, 1.0, rhs);
+
+          preconditioner.vmult(solution_old, temp_vector1);
+
+          // compute x^{n+1} = x^{n} + f_1 * x^{n} + f_2 * t
+          DEAL_II_OPENMP_SIMD_PRAGMA
+          for (unsigned int i = 0; i < solution_old.locally_owned_size(); ++i)
+            solution_old_ptr[i] =
+              factor1_plus_1 * solution_ptr[i] + solution_old_ptr[i] * factor2;
+        }
+      else
+        {
+          const auto solution_ptr     = solution.begin();
+          const auto solution_old_ptr = solution_old.begin();
+          const auto temp_vector2_ptr = temp_vector2.begin();
+
+          // compute t = P^{-1} * (b-A*x^{n})
+          temp_vector1.sadd(-1.0, 1.0, rhs);
+
+          preconditioner.vmult(temp_vector2, temp_vector1);
+
+          // compute x^{n+1} = x^{n} + f_1 * (x^{n}-x^{n-1}) + f_2 * t
+          DEAL_II_OPENMP_SIMD_PRAGMA
+          for (unsigned int i = 0; i < solution_old.locally_owned_size(); ++i)
+            solution_old_ptr[i] = factor1_plus_1 * solution_ptr[i] -
+                                  factor1 * solution_old_ptr[i] +
+                                  temp_vector2_ptr[i] * factor2;
+        }
+
+      solution.swap(solution_old);
+    }
+
+    template <
+      typename Number,
+      typename PreconditionerType,
+      std::enable_if_t<
+        has_vmult_with_std_functions_for_precondition<
+          PreconditionerType,
+          LinearAlgebra::distributed::Vector<Number, MemorySpace::Host>>,
+        int> * = nullptr>
+    inline void
+    vector_updates(
+      const LinearAlgebra::distributed::Vector<Number, MemorySpace::Host> &rhs,
+      const PreconditionerType &preconditioner,
+      const unsigned int        iteration_index,
+      const double              factor1_,
+      const double              factor2_,
+      LinearAlgebra::distributed::Vector<Number, MemorySpace::Host>
+        &solution_old,
+      LinearAlgebra::distributed::Vector<Number, MemorySpace::Host>
+        &temp_vector1,
+      LinearAlgebra::distributed::Vector<Number, MemorySpace::Host>
+        &temp_vector2,
+      LinearAlgebra::distributed::Vector<Number, MemorySpace::Host> &solution)
+    {
+      const Number factor1        = factor1_;
+      const Number factor1_plus_1 = 1. + factor1_;
+      const Number factor2        = factor2_;
+
+      const auto rhs_ptr          = rhs.begin();
+      const auto temp_vector1_ptr = temp_vector1.begin();
+      const auto temp_vector2_ptr = temp_vector2.begin();
+      const auto solution_ptr     = solution.begin();
+      const auto solution_old_ptr = solution_old.begin();
+
+      if (iteration_index == 0)
+        {
+          preconditioner.vmult(
+            solution,
+            rhs,
+            [&](const auto start_range, const auto end_range) {
+              if (end_range > start_range)
+                std::memset(solution.begin() + start_range,
+                            0,
+                            sizeof(Number) * (end_range - start_range));
+            },
+            [&](const auto begin, const auto end) {
+              DEAL_II_OPENMP_SIMD_PRAGMA
+              for (std::size_t i = begin; i < end; ++i)
+                solution_ptr[i] *= factor2;
+            });
+        }
+      else
+        {
+          preconditioner.vmult(
+            temp_vector2,
+            temp_vector1,
+            [&](const auto begin, const auto end) {
+              if (end > begin)
+                std::memset(temp_vector2.begin() + begin,
+                            0,
+                            sizeof(Number) * (end - begin));
+
+              DEAL_II_OPENMP_SIMD_PRAGMA
+              for (std::size_t i = begin; i < end; ++i)
+                temp_vector1_ptr[i] = rhs_ptr[i] - temp_vector1_ptr[i];
+            },
+            [&](const auto begin, const auto end) {
+              if (iteration_index == 1)
+                {
+                  DEAL_II_OPENMP_SIMD_PRAGMA
+                  for (std::size_t i = begin; i < end; ++i)
+                    temp_vector2_ptr[i] = factor1_plus_1 * solution_ptr[i] +
+                                          factor2 * temp_vector2_ptr[i];
+                }
+              else
+                {
+                  DEAL_II_OPENMP_SIMD_PRAGMA
+                  for (std::size_t i = begin; i < end; ++i)
+                    temp_vector2_ptr[i] = factor1_plus_1 * solution_ptr[i] -
+                                          factor1 * solution_old_ptr[i] +
+                                          factor2 * temp_vector2_ptr[i];
+                }
+            });
+        }
+
+      if (iteration_index > 0)
+        {
+          solution_old.swap(temp_vector2);
+          solution_old.swap(solution);
+        }
+    }
+
     // worker routine for deal.II vectors. Because of vectorization, we need
     // to put the loop into an extra structure because the virtual function of
     // VectorUpdatesRange prevents the compiler from applying vectorization.
@@ -2535,29 +2941,6 @@ namespace internal
       else
         solution.swap(solution_old);
     }
-
-    // a helper type-trait that leverage SFINAE to figure out if MatrixType has
-    // ... MatrixType::vmult(VectorType &, const VectorType&,
-    // std::function<...>, std::function<...>) const
-    template <typename MatrixType, typename VectorType>
-    using vmult_functions_t = decltype(std::declval<MatrixType const>().vmult(
-      std::declval<VectorType &>(),
-      std::declval<const VectorType &>(),
-      std::declval<
-        const std::function<void(const unsigned int, const unsigned int)> &>(),
-      std::declval<const std::function<void(const unsigned int,
-                                            const unsigned int)> &>()));
-
-    template <typename MatrixType,
-              typename VectorType,
-              typename PreconditionerType>
-    constexpr bool has_vmult_with_std_functions =
-      is_supported_operation<vmult_functions_t, MatrixType, VectorType>
-        &&  std::is_same<PreconditionerType, DiagonalMatrix<VectorType>>::value
-          &&std::is_same<
-            VectorType,
-            LinearAlgebra::distributed::Vector<typename VectorType::value_type,
-                                               MemorySpace::Host>>::value;
 
     // We need to have a separate declaration for static const members
 

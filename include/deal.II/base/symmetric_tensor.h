@@ -54,7 +54,7 @@ DEAL_II_CONSTEXPR inline DEAL_II_ALWAYS_INLINE SymmetricTensor<2, dim, Number>
  * operator representation of the linear deviator operator $\mathbb P$, also
  * known as the volumetric projection tensor, calculated as:
  * \f{align*}{
- *   \mathbb{P} &=\mathbb{I} -\frac{1}{\text{dim}} \mathbf I \otimes \mathbf I
+ *   \mathbb{P} &=\mathbb{S} -\frac{1}{\text{dim}} \mathbf I \otimes \mathbf I
  *   \\
  *   \mathcal{P}_{ijkl} &= \frac 12 \left(\delta_{ik} \delta_{jl} +
  *                                        \delta_{il} \delta_{jk} \right)
@@ -81,10 +81,10 @@ DEAL_II_CONSTEXPR inline DEAL_II_ALWAYS_INLINE SymmetricTensor<4, dim, Number>
                                                deviator_tensor();
 
 /**
- * Return the fourth-order symmetric identity tensor $\mathbb I$ which maps
+ * Return the fourth-order symmetric identity tensor $\mathbb S$ which maps
  * symmetric second-order tensors, such as  $\mathbf A$, to themselves.
  * \f[
- *   \mathbb I : \mathbf A = \mathbf A
+ *   \mathbb S : \mathbf A = \mathbf A
  * \f]
  *
  * Note that this tensor, even though it is the identity, has a somewhat funny
@@ -92,25 +92,25 @@ DEAL_II_CONSTEXPR inline DEAL_II_ALWAYS_INLINE SymmetricTensor<4, dim, Number>
  * example, for <tt>dim=2</tt>, the identity tensor has all zero entries
  * except for
  * \f[
- *   \mathcal{I}_{0000} = \mathcal{I}_{1111} = 1
+ *   \mathcal{S}_{0000} = \mathcal{S}_{1111} = 1
  * \f]
  * \f[
- *   \mathcal{I}_{0101} = \mathcal{I}_{0110} = \mathcal{I}_{1001}
- *                      = \mathcal{I}_{1010} = \frac 12.
+ *   \mathcal{S}_{0101} = \mathcal{S}_{0110} = \mathcal{S}_{1001}
+ *                      = \mathcal{S}_{1010} = \frac 12.
  * \f]
  * In index notation, we can write the general form
  * \f[
- *   \mathcal{I}_{ijkl} = \frac 12 \left( \delta_{ik} \delta_{jl} +
+ *   \mathcal{S}_{ijkl} = \frac 12 \left( \delta_{ik} \delta_{jl} +
  *                                        \delta_{il} \delta_{jk} \right).
  * \f]
  * To see why this factor of $1 / 2$ is necessary, consider computing
  * $\mathbf A= \mathbb I : \mathbf B$.
- * For the element $A_{01}$ we have $A_{01} = \mathcal{I}_{0100} B_{00} +
- * \mathcal{I}_{0111} B_{11} + \mathcal{I}_{0101} B_{01} +
- * \mathcal{I}_{0110} B_{10}$. On the other hand, we need
+ * For the element $A_{01}$ we have $A_{01} = \mathcal{S}_{0100} B_{00} +
+ * \mathcal{S}_{0111} B_{11} + \mathcal{S}_{0101} B_{01} +
+ * \mathcal{S}_{0110} B_{10}$. On the other hand, we need
  * to have $A_{01} = B_{01}$, and symmetry implies $B_{01}=B_{10}$,
- * leading to $A_{01} = (\mathcal{I}_{0101} + \mathcal{I}_{0110}) B_{01}$, or,
- * again by symmetry, $\mathcal{I}_{0101} = \mathcal{I}_{0110} = \frac 12$.
+ * leading to $A_{01} = (\mathcal{S}_{0101} + \mathcal{S}_{0110}) B_{01}$, or,
+ * again by symmetry, $\mathcal{S}_{0101} = \mathcal{S}_{0110} = \frac 12$.
  * Similar considerations hold for the three-dimensional case.
  *
  * This issue is also explained in the introduction to step-44.
@@ -1563,7 +1563,7 @@ namespace internal
         // whether we have to fear that the matrix is not regular.
         Number diagonal_sum = internal::NumberType<Number>::value(0.0);
         for (unsigned int i = 0; i < N; ++i)
-          diagonal_sum += std::fabs(tmp.data[i][i]);
+          diagonal_sum += numbers::NumberTraits<Number>::abs(tmp.data[i][i]);
         const Number typical_diagonal_element =
           diagonal_sum / static_cast<double>(N);
         (void)typical_diagonal_element;
@@ -1576,12 +1576,12 @@ namespace internal
           {
             // Pivot search: search that part of the line on and right of the
             // diagonal for the largest element.
-            Number       max = std::fabs(tmp.data[j][j]);
-            unsigned int r   = j;
+            Number max     = numbers::NumberTraits<Number>::abs(tmp.data[j][j]);
+            unsigned int r = j;
             for (unsigned int i = j + 1; i < N; ++i)
-              if (std::fabs(tmp.data[i][j]) > max)
+              if (numbers::NumberTraits<Number>::abs(tmp.data[i][j]) > max)
                 {
-                  max = std::fabs(tmp.data[i][j]);
+                  max = numbers::NumberTraits<Number>::abs(tmp.data[i][j]);
                   r   = i;
                 }
 
@@ -2343,25 +2343,25 @@ namespace internal
   compute_norm(const typename SymmetricTensorAccessors::
                  StorageType<2, dim, Number>::base_tensor_type &data)
   {
+    // Make things work with AD types
+    using std::sqrt;
     switch (dim)
       {
         case 1:
           return numbers::NumberTraits<Number>::abs(data[0]);
 
         case 2:
-          return std::sqrt(
-            numbers::NumberTraits<Number>::abs_square(data[0]) +
-            numbers::NumberTraits<Number>::abs_square(data[1]) +
-            2. * numbers::NumberTraits<Number>::abs_square(data[2]));
+          return sqrt(numbers::NumberTraits<Number>::abs_square(data[0]) +
+                      numbers::NumberTraits<Number>::abs_square(data[1]) +
+                      2. * numbers::NumberTraits<Number>::abs_square(data[2]));
 
         case 3:
-          return std::sqrt(
-            numbers::NumberTraits<Number>::abs_square(data[0]) +
-            numbers::NumberTraits<Number>::abs_square(data[1]) +
-            numbers::NumberTraits<Number>::abs_square(data[2]) +
-            2. * numbers::NumberTraits<Number>::abs_square(data[3]) +
-            2. * numbers::NumberTraits<Number>::abs_square(data[4]) +
-            2. * numbers::NumberTraits<Number>::abs_square(data[5]));
+          return sqrt(numbers::NumberTraits<Number>::abs_square(data[0]) +
+                      numbers::NumberTraits<Number>::abs_square(data[1]) +
+                      numbers::NumberTraits<Number>::abs_square(data[2]) +
+                      2. * numbers::NumberTraits<Number>::abs_square(data[3]) +
+                      2. * numbers::NumberTraits<Number>::abs_square(data[4]) +
+                      2. * numbers::NumberTraits<Number>::abs_square(data[5]));
 
         default:
           {
@@ -2375,7 +2375,7 @@ namespace internal
               return_value +=
                 2. * numbers::NumberTraits<Number>::abs_square(data[d]);
 
-            return std::sqrt(return_value);
+            return sqrt(return_value);
           }
       }
   }
@@ -2387,6 +2387,8 @@ namespace internal
   compute_norm(const typename SymmetricTensorAccessors::
                  StorageType<4, dim, Number>::base_tensor_type &data)
   {
+    // Make things work with AD types
+    using std::sqrt;
     switch (dim)
       {
         case 1:
@@ -2416,7 +2418,7 @@ namespace internal
                 return_value +=
                   4. * numbers::NumberTraits<Number>::abs_square(data[i][j]);
 
-            return std::sqrt(return_value);
+            return sqrt(return_value);
           }
       }
   }

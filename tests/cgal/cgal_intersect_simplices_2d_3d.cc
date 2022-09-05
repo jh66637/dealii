@@ -96,7 +96,6 @@ test_intersection_inside(Triangulation<3> &tria0, Triangulation<2, 3> &tria1)
       std::accumulate(quad.get_weights().begin(), quad.get_weights().end(), 0.);
     assert(std::abs(sum - expected_measure) < 1e-15);
   }
-
   deallog << "OK" << std::endl;
 }
 

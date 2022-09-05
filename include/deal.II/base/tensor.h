@@ -1069,7 +1069,7 @@ constexpr inline DEAL_II_ALWAYS_INLINE
   DEAL_II_CUDA_HOST_DEV Tensor<0, dim, Number> &
   Tensor<0, dim, Number>::operator=(const Tensor<0, dim, OtherNumber> &p)
 {
-  value = internal::NumberType<Number>::value(p);
+  value = internal::NumberType<Number>::value(p.value);
   return *this;
 }
 
@@ -1361,7 +1361,7 @@ template <typename OtherNumber>
 constexpr DEAL_II_ALWAYS_INLINE Tensor<rank_, dim, Number>::
 operator Tensor<1, dim, Tensor<rank_ - 1, dim, OtherNumber>>() const
 {
-  return Tensor<1, dim, Tensor<rank_ - 1, dim, Number>>(values);
+  return Tensor<1, dim, Tensor<rank_ - 1, dim, OtherNumber>>(values);
 }
 
 
@@ -1727,7 +1727,9 @@ template <int rank_, int dim, typename Number>
 inline typename numbers::NumberTraits<Number>::real_type
 Tensor<rank_, dim, Number>::norm() const
 {
-  return std::sqrt(norm_square());
+  // Make things work with AD types
+  using std::sqrt;
+  return sqrt(norm_square());
 }
 
 
@@ -3009,7 +3011,7 @@ l1_norm(const Tensor<2, dim, Number> &t)
     {
       Number sum = internal::NumberType<Number>::value(0.0);
       for (unsigned int i = 0; i < dim; ++i)
-        sum += std::fabs(t[i][j]);
+        sum += numbers::NumberTraits<Number>::abs(t[i][j]);
 
       if (sum > max)
         max = sum;
@@ -3035,7 +3037,7 @@ linfty_norm(const Tensor<2, dim, Number> &t)
     {
       Number sum = internal::NumberType<Number>::value(0.0);
       for (unsigned int j = 0; j < dim; ++j)
-        sum += std::fabs(t[i][j]);
+        sum += numbers::NumberTraits<Number>::abs(t[i][j]);
 
       if (sum > max)
         max = sum;
