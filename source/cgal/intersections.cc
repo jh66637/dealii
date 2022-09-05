@@ -625,22 +625,24 @@ namespace CGALWrappers
                 if (const std::vector<CGALPoint3_exact> *vps =
                       boost::get<std::vector<CGALPoint3_exact>>(&*intersection))
                   {
-                    Delaunay tria_inter(vps->begin(), vps->end());
-                    for (auto it = tria_inter.finite_faces_begin();
-                         it != tria_inter.finite_faces_end();
+                    Triangulation3_exact tria_inter;
+                    tria_inter.insert(vps->begin(), vps->end());
+
+                    for (auto it = tria_inter.finite_facets_begin();
+                         it != tria_inter.finite_facets_end();
                          ++it)
                       {
-                        if (CGAL::to_double(
-                              tria_inter.triangle(it).squared_area()) >
+                        const auto triangle = tria_inter.triangle(*it);
+                        if (CGAL::to_double(triangle.squared_area()) >
                             tol * tol)
                           {
                             std::array<Point<3>, 3> verts = {
                               {CGALWrappers::cgal_point_to_dealii_point<3>(
-                                 it->vertex(0)->point()),
+                                 triangle[0]),
                                CGALWrappers::cgal_point_to_dealii_point<3>(
-                                 it->vertex(1)->point()),
+                                 triangle[1]),
                                CGALWrappers::cgal_point_to_dealii_point<3>(
-                                 it->vertex(2)->point())}};
+                                 triangle[2])}};
 
                             vertices.push_back(verts);
                           }
