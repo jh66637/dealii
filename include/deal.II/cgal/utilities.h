@@ -610,7 +610,7 @@ namespace CGALWrappers
     // Elements have to be rectangular or simplices
     Assert(n_vertices == std::pow(2, dim) || n_vertices == dim + 1,
            ExcNotImplemented());
-    AssertDimension(mapping.get_vertices(cell).size(), n_vertices);
+    AssertDimension(cell->n_vertices(), n_vertices);
 
     std::array<Point<spacedim>, n_vertices> vertices;
 
@@ -619,6 +619,40 @@ namespace CGALWrappers
                 vertices.begin());
 
     if (ReferenceCell::n_vertices_to_type(dim, n_vertices) ==
+        ReferenceCells::Quadrilateral)
+      std::swap(vertices[2], vertices[3]);
+
+    return vertices;
+  }
+
+  /**
+   * Get vertices of cell in CGAL ordering
+   *
+   * @param [in] cell A cell_iterator to a deal.II cell.
+   * @param [in] face A face_iterator to a face on that cell.
+   * @param [in] mapping Mapping object for the cell.
+   * @return [out] Array of vertices in CGAL order.
+   */
+  template <int n_vertices, int dim, int spacedim>
+  std::array<Point<spacedim>, n_vertices>
+  get_vertices_in_cgal_order(
+    const typename dealii::Triangulation<dim, spacedim>::cell_iterator &cell,
+    const typename dealii::Triangulation<dim, spacedim>::face_iterator &face,
+    const Mapping<dim, spacedim> &                                      mapping)
+  {
+    // Elements have to be rectangular or simplices
+    Assert(n_vertices == std::pow(2, dim - 1) || n_vertices == dim - 1 + 1,
+           ExcNotImplemented());
+    AssertDimension(face->n_vertices(), n_vertices);
+
+    std::array<Point<spacedim>, n_vertices> vertices;
+
+    for (unsigned int i = 0; i < face->n_vertices(); ++i)
+      vertices[i] = mapping.transform_unit_to_real_cell(
+        cell, mapping.transform_real_to_unit_cell(cell, face->vertex(i)));
+
+
+    if (ReferenceCell::n_vertices_to_type(dim - 1, n_vertices) ==
         ReferenceCells::Quadrilateral)
       std::swap(vertices[2], vertices[3]);
 
