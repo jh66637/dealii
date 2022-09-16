@@ -343,3 +343,8 @@ public:
     return points;
   }
 };
+// TODO:
+// benchmark: using caches and trees
+// look at extract_boundary_mesh for parallel distributed trias
+// remote point eval doubles the work
+// benchmark: add unit points and quadrature rules as members
