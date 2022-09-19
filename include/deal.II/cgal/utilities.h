@@ -593,6 +593,25 @@ namespace CGALWrappers
       }
   }
 
+  namespace internal
+  {
+    template <int spacedim>
+    Point<spacedim>
+    round_point(const Point<spacedim> &vertex, const double tol)
+    {
+      Point<spacedim> rounded_vertex = vertex;
+
+      const double roundoff_factor =
+        10. / tol; // round one didget more than tol
+
+      for (unsigned int d = 0; d < spacedim; ++d)
+        rounded_vertex[d] =
+          std::floor(vertex[d] * roundoff_factor) / roundoff_factor;
+
+      return rounded_vertex;
+    };
+  } // namespace internal
+
 
   /**
    * Get vertices of cell in CGAL ordering.
@@ -605,7 +624,8 @@ namespace CGALWrappers
   std::array<Point<spacedim>, n_vertices>
   get_vertices_in_cgal_order(
     const typename dealii::Triangulation<dim, spacedim>::cell_iterator &cell,
-    const Mapping<dim, spacedim> &                                      mapping)
+    const Mapping<dim, spacedim> &                                      mapping,
+    const double tol = 1e-9)
   {
     // Elements have to be rectangular or simplices
     Assert(n_vertices == std::pow(2, dim) || n_vertices == dim + 1,
@@ -614,9 +634,10 @@ namespace CGALWrappers
 
     std::array<Point<spacedim>, n_vertices> vertices;
 
-    std::copy_n(mapping.get_vertices(cell).begin(),
-                vertices.size(),
-                vertices.begin());
+    for (unsigned int i = 0; i < n_vertices; ++i)
+      vertices[i] = internal::round_point(mapping.get_vertices(cell)[i], tol);
+
+
 
     if (ReferenceCell::n_vertices_to_type(dim, n_vertices) ==
         ReferenceCells::Quadrilateral)
@@ -638,7 +659,8 @@ namespace CGALWrappers
   get_vertices_in_cgal_order(
     const typename dealii::Triangulation<dim, spacedim>::cell_iterator &cell,
     const typename dealii::Triangulation<dim, spacedim>::face_iterator &face,
-    const Mapping<dim, spacedim> &                                      mapping)
+    const Mapping<dim, spacedim> &                                      mapping,
+    const double tol = 1e-9)
   {
     // Elements have to be rectangular or simplices
     Assert(n_vertices == std::pow(2, dim - 1) || n_vertices == dim - 1 + 1,
@@ -647,10 +669,13 @@ namespace CGALWrappers
 
     std::array<Point<spacedim>, n_vertices> vertices;
 
-    for (unsigned int i = 0; i < face->n_vertices(); ++i)
-      vertices[i] = mapping.transform_unit_to_real_cell(
-        cell, mapping.transform_real_to_unit_cell(cell, face->vertex(i)));
-
+    for (unsigned int i = 0; i < n_vertices; ++i)
+      {
+        vertices[i] = internal::round_point(
+          mapping.transform_unit_to_real_cell(
+            cell, mapping.transform_real_to_unit_cell(cell, face->vertex(i))),
+          tol);
+      }
 
     if (ReferenceCell::n_vertices_to_type(dim - 1, n_vertices) ==
         ReferenceCells::Quadrilateral)
