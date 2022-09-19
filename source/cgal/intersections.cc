@@ -716,11 +716,13 @@ namespace CGALWrappers
            ExcNotImplemented());
 
     const auto vertices0 =
-      CGALWrappers::get_vertices_in_cgal_order<int(std::pow(2, dim0))>(
-        cell0, mapping0);
+      CGALWrappers::get_vertices_in_cgal_order<int(std::pow(2, dim0))>(cell0,
+                                                                       mapping0,
+                                                                       tol);
     const auto vertices1 =
-      CGALWrappers::get_vertices_in_cgal_order<int(std::pow(2, dim1))>(
-        cell1, mapping1);
+      CGALWrappers::get_vertices_in_cgal_order<int(std::pow(2, dim1))>(cell1,
+                                                                       mapping1,
+                                                                       tol);
 
     return compute_intersection_of_cells<dim0,
                                          dim1,
