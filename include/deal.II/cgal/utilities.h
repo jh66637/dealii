@@ -609,7 +609,7 @@ namespace CGALWrappers
           std::floor(vertex[d] * roundoff_factor) / roundoff_factor;
 
       return rounded_vertex;
-    };
+    }
   } // namespace internal
 
 
