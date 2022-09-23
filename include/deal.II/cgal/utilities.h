@@ -606,8 +606,7 @@ namespace CGALWrappers
 
       for (unsigned int d = 0; d < spacedim; ++d)
         rounded_vertex[d] =
-          std::ceil((vertex[d] - std::numeric_limits<double>::epsilon()) *
-                    roundoff_factor) /
+          std::ceil((vertex[d] - 1e-2 * tol) * roundoff_factor) /
           roundoff_factor;
 
       return rounded_vertex;
