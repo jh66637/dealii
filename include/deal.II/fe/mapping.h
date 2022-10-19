@@ -347,6 +347,15 @@ public:
     const typename Triangulation<dim, spacedim>::cell_iterator &cell) const;
 
   /**
+   * Same as above, but working on a face.
+   */
+  virtual boost::container::small_vector<Point<spacedim>,
+                                         GeometryInfo<dim>::vertices_per_face>
+  get_vertices(
+    const typename Triangulation<dim, spacedim>::face_iterator &face) const;
+
+
+  /**
    * Return the mapped center of a cell.
    *
    * If you are using a (bi-,tri-)linear mapping that preserves vertex

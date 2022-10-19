@@ -419,6 +419,16 @@ MappingFEField<dim, spacedim, VectorType>::get_vertices(
 
   return vertices;
 }
+template <int dim, int spacedim, typename VectorType>
+boost::container::small_vector<Point<spacedim>,
+                               GeometryInfo<dim>::vertices_per_face>
+MappingFEField<dim, spacedim, VectorType>::get_vertices(
+  const typename Triangulation<dim, spacedim>::face_iterator &face) const
+{
+  // TODO:!!!MAPPING
+  (void)face;
+  return {};
+}
 
 
 

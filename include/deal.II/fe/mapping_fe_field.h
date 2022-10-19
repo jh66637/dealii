@@ -176,6 +176,15 @@ public:
     const override;
 
   /**
+   * Same as above, but working on a face.
+   */
+  virtual boost::container::small_vector<Point<spacedim>,
+                                         GeometryInfo<dim>::vertices_per_face>
+  get_vertices(const typename Triangulation<dim, spacedim>::face_iterator &face)
+    const override;
+
+
+  /**
    * @name Mapping points between reference and real cells
    * @{
    */

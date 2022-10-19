@@ -759,6 +759,19 @@ MappingQCache<dim, spacedim>::get_vertices(
 
 
 
+template <int dim, int spacedim>
+boost::container::small_vector<Point<spacedim>,
+                               GeometryInfo<dim>::vertices_per_face>
+MappingQCache<dim, spacedim>::get_vertices(
+  const typename Triangulation<dim, spacedim>::face_iterator &face) const
+{
+  // TODO:!!!MAPPING
+  (void)face;
+  return {};
+}
+
+
+
 //--------------------------- Explicit instantiations -----------------------
 #include "mapping_q_cache.inst"
 

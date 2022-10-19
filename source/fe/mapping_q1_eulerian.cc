@@ -104,6 +104,19 @@ MappingQ1Eulerian<dim, VectorType, spacedim>::get_vertices(
 
 
 template <int dim, class VectorType, int spacedim>
+boost::container::small_vector<Point<spacedim>,
+                               GeometryInfo<dim>::vertices_per_face>
+MappingQ1Eulerian<dim, VectorType, spacedim>::get_vertices(
+  const typename Triangulation<dim, spacedim>::face_iterator &face) const
+{
+  // TODO:!!!MAPPING
+  (void)face;
+  return {};
+}
+
+
+
+template <int dim, class VectorType, int spacedim>
 std::vector<Point<spacedim>>
 MappingQ1Eulerian<dim, VectorType, spacedim>::compute_mapping_support_points(
   const typename Triangulation<dim, spacedim>::cell_iterator &cell) const
