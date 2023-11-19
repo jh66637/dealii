@@ -603,7 +603,7 @@ namespace Step89
               typename InternalFaceIntegratorVelocity,
               typename ExternalFaceIntegratorPressure,
               typename ExternalFaceIntegratorVelocity>
-    void evaluate_face_kernel( // PM: inline function
+    inline DEAL_II_ALWAYS_INLINE void evaluate_face_kernel(
       InternalFaceIntegratorPressure &pressure_m,
       InternalFaceIntegratorVelocity &velocity_m,
       ExternalFaceIntegratorPressure &pressure_p,
