@@ -149,8 +149,15 @@ const auto boundary_function =
 
 matrix_free.template loop<VectorType, VectorType>({}, {}, boundary_function, dst, src);
 @endcode
-PM: wrap line! @c remote_communicator is of type FERemoteCommunicator and assumed to be correctly initialized in above code snippet.
-FERemoteCommunicator internally manages the update of ghost values over non-matching interfaces and keeps track of the mapping between quadrature point index and correspoding values/gradients. The update of the values/gradients happens <i>before</i> the actual matrix-free loop. FERemoteCommunicator, as well as FERemoteEvaluation behaves differently for different template parameters. Most of the template parameters are standard and do not have to be explained. @c is_face is used to determine if FERemoteEvaluation works on faces or cells. Within this tutorial we are only considering surface coupling and thus @c is_face=true. @c use_matrix_free_batches is used to ensure, the class can be used in combination with FEPointEvaluation, where @c use_matrix_free_batches=false, as well as FEEvaluation and FEFaceEvaluation, where @c use_matrix_free_batches=true.
+@c remote_communicator is of type FERemoteCommunicator and assumed to be correctly initialized in above code snippet.
+FERemoteCommunicator internally manages the update of ghost values over non-matching interfaces and keeps track of the
+mapping between quadrature point index and correspoding values/gradients. The update of the values/gradients happens
+<i>before</i> the actual matrix-free loop. FERemoteCommunicator, as well as FERemoteEvaluation behaves differently for
+different template parameters. Most of the template parameters are standard and do not have to be explained.
+@c is_face is used to determine if FERemoteEvaluation works on faces or cells. Within this tutorial we are only considering
+surface coupling and thus @c is_face=true. @c use_matrix_free_batches is used to ensure, the class can be used in
+combination with FEPointEvaluation, where @c use_matrix_free_batches=false, as well as FEEvaluation and FEFaceEvaluation,
+where @c use_matrix_free_batches=true.
 
 <h3>Overview</h3>
 
