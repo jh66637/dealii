@@ -1633,7 +1633,7 @@ namespace Step89
               }
 
             Assert(global_quadrature_vector[cell->active_cell_index()][f]
-                       .sfromize() == 0,
+                       .size() == 0,
                    ExcMessage("Quadrature for given face already provided."));
 
             global_quadrature_vector[cell->active_cell_index()][f] =
