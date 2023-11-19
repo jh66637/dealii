@@ -331,9 +331,11 @@ namespace Step89
   // Similar to the MaterialHandler above we also need the materials
   // in the neighboring cells. We restrict ourself to phase jumps over
   // non-matching interfaces and in which it is not trivial to access
-  // the correct values. Besides this, it is possible, that the at the
+  // the correct values. Besides this, it is possible, that materials at the
   // neighboring cells change in every quadrature point.
   // Internally, this class makes use of FERemoteEvaluation objects.
+  // Compared to the MaterialHandler above, there is no homogenous path
+  // since in the homogenous case we can simply use MaterialHandler.
   template <int dim, typename Number, bool mortaring>
   class RemoteMaterialHandler
   {
@@ -349,8 +351,6 @@ namespace Step89
     {
       Assert(material_id_map.size() > 0,
              ExcMessage("No materials given to MaterialHandler"));
-
-      // PM: no homogeneous path?
 
       // Initialize and fill DoF vectors that contain the materials.
       Vector<Number> c(tria.n_active_cells());
