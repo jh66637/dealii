@@ -1194,8 +1194,12 @@ namespace Step89
 
 
   // @sect3{Construction of non-matching triangulations}
-  // PM: describe the mesh on a high level
   //
+  // This function creates a two dimensional squared triangulation
+  // that spans from (0,0) to (1,1). It consists of two subdomains.
+  // The left subdomain spans from (0,0) to (0.5,1). The right
+  // subdomain spans from (0.5,0) to (1,1). The left subdomain has
+  // three times smaller elements compared to the right subdomain.
   template <int dim>
   void build_non_matching_triangulation(
     parallel::distributed::Triangulation<dim> &tria,
@@ -1218,7 +1222,7 @@ namespace Step89
 
     // Construct left part of mesh.
     Triangulation<dim> tria_left;
-    const unsigned int subdiv_left = 1;
+    const unsigned int subdiv_left = 3;
     GridGenerator::subdivided_hyper_rectangle(tria_left,
                                               {subdiv_left, 2 * subdiv_left},
                                               {0.0, 0.0},
@@ -1240,7 +1244,7 @@ namespace Step89
 
     // Construct right part of mesh.
     Triangulation<dim> tria_right;
-    const unsigned int subdiv_right = 3;
+    const unsigned int subdiv_right = 1;
     GridGenerator::subdivided_hyper_rectangle(tria_right,
                                               {subdiv_right, 2 * subdiv_right},
                                               {0.5 * length, 0.0},
