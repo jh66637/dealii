@@ -889,7 +889,7 @@ namespace Step89
         matrix_free.get_dof_handler().get_fe().dofs_per_cell);
 
       for (unsigned int face = face_range.first; face < face_range.second;
-           face++) // PM: preincrement
+           ++face) 
         {
           if (!HelperFunctions::is_non_matching_face(
                 remote_face_ids, matrix_free.get_boundary_id(face)))
