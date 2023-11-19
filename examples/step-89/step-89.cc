@@ -651,7 +651,7 @@ namespace Step89
               typename ExternalFaceIntegratorPressure,
               typename ExternalFaceIntegratorVelocity,
               bool mortaring> // PM: I would remove this template argument (also from RemoteMaterialHandler)
-    void evaluate_face_kernel( // PM: let's this give a unique name -> evaluate_face_kernel_inhomogeneous
+    void evaluate_face_kernel_inhomogeneous(
       InternalFaceIntegratorPressure &pressure_m,
       InternalFaceIntegratorVelocity &velocity_m,
       ExternalFaceIntegratorPressure &pressure_p,
@@ -834,7 +834,7 @@ namespace Step89
                   // If in-homogenous material is considered use the
                   // in-homogenous fluxes.
                   material_handler_r->reinit_face(face);
-                  evaluate_face_kernel(pressure_m,
+                  evaluate_face_kernel_inhomogeneous(pressure_m,
                                        velocity_m,
                                        *pressure_r,
                                        *velocity_r,
@@ -972,7 +972,7 @@ namespace Step89
                       // material_handler->get_materials(v).
                       material_handler_r_mortar->reinit_face(
                         cell->active_cell_index(), f);
-                      evaluate_face_kernel(pressure_m_mortar,
+                      evaluate_face_kernel_inhomogeneous(pressure_m_mortar,
                                            velocity_m_mortar,
                                            *pressure_r_mortar,
                                            *velocity_r_mortar,
