@@ -780,24 +780,8 @@ namespace Step89
           pressure_m.gather_evaluate(src, EvaluationFlags::values);
           velocity_m.gather_evaluate(src, EvaluationFlags::values);
 
-          // PM: could we flip the logic so that we don't have
-          // double negation?
-          if (!HelperFunctions::is_non_matching_face(
+        if (HelperFunctions::is_non_matching_face(
                 remote_face_ids, matrix_free.get_boundary_id(face)))
-            {
-              // If @c face is a standard boundary face, evaluate the integral
-              // as usual in the matrix free context. To be able to use the same
-              // kernel as for inner faces we pass the boundary condition
-              // objects to the function that evaluates the kernel. As mentioned
-              // above, there is no neighbor to consider in the kernel.
-              material_handler->reinit_face(face);
-              evaluate_face_kernel<false>(pressure_m,
-                                          velocity_m,
-                                          pressure_bc,
-                                          velocity_bc,
-                                          material_handler->get_materials());
-            }
-          else
             {
               // If @c face is nonmatching we have to query values via the
               // FERemoteEvaluaton objects. This is done by passing the
@@ -841,6 +825,20 @@ namespace Step89
                                        material_handler->get_materials(),
                                        *material_handler_r);
                 }
+            }
+else
+            {
+              // If @c face is a standard boundary face, evaluate the integral
+              // as usual in the matrix free context. To be able to use the same
+              // kernel as for inner faces we pass the boundary condition
+              // objects to the function that evaluates the kernel. As mentioned
+              // above, there is no neighbor to consider in the kernel.
+              material_handler->reinit_face(face);
+              evaluate_face_kernel<false>(pressure_m,
+                                          velocity_m,
+                                          pressure_bc,
+                                          velocity_bc,
+                                          material_handler->get_materials());
             }
 
           pressure_m.integrate_scatter(EvaluationFlags::values, dst);
@@ -891,27 +889,8 @@ namespace Step89
       for (unsigned int face = face_range.first; face < face_range.second;
            ++face) 
         {
-          if (!HelperFunctions::is_non_matching_face(
+          if (HelperFunctions::is_non_matching_face(
                 remote_face_ids, matrix_free.get_boundary_id(face)))
-            {
-              // Same as in @c local_apply_boundary_face_point_to_point().
-              velocity_m.reinit(face);
-              pressure_m.reinit(face);
-
-              pressure_m.gather_evaluate(src, EvaluationFlags::values);
-              velocity_m.gather_evaluate(src, EvaluationFlags::values);
-
-              material_handler->reinit_face(face);
-              evaluate_face_kernel<false>(pressure_m,
-                                          velocity_m,
-                                          pressure_bc,
-                                          velocity_bc,
-                                          material_handler->get_materials());
-
-              pressure_m.integrate_scatter(EvaluationFlags::values, dst);
-              velocity_m.integrate_scatter(EvaluationFlags::values, dst);
-            }
-          else
             {
               // For mortaring, we have to cosider every face from the face
               // batches seperately and have to use the FEPointEvaluation
@@ -990,6 +969,25 @@ namespace Step89
                                                    buffer.end(),
                                                    dst);
                 }
+            }
+          else
+            {
+              // Same as in @c local_apply_boundary_face_point_to_point().
+              velocity_m.reinit(face);
+              pressure_m.reinit(face);
+
+              pressure_m.gather_evaluate(src, EvaluationFlags::values);
+              velocity_m.gather_evaluate(src, EvaluationFlags::values);
+
+              material_handler->reinit_face(face);
+              evaluate_face_kernel<false>(pressure_m,
+                                          velocity_m,
+                                          pressure_bc,
+                                          velocity_bc,
+                                          material_handler->get_materials());
+
+              pressure_m.integrate_scatter(EvaluationFlags::values, dst);
+              velocity_m.integrate_scatter(EvaluationFlags::values, dst);
             }
         }
     }
