@@ -1454,7 +1454,7 @@ namespace Step89
 
     // Compute the the maximum speed of sound, needed for the computation of
     // the time-step size.
-    double speed_of_sound_max = 0.0; // PM: don't we need to communicate this value?
+    double speed_of_sound_max = 0.0;
     for (const auto &mat : materials)
       speed_of_sound_max = std::max(speed_of_sound_max, mat.second.first);
 
