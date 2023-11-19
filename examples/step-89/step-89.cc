@@ -207,7 +207,7 @@ namespace Step89
   } // namespace HelperFunctions
 
   //@sect3{Material handlers}
-  //  
+  //
   // We are considering homogenous and inhomogenous fluids. Therefore,
   // we need the infromation which material is defined at which cell.
   // This class helps to access the correct values. In case of homogenous
@@ -408,7 +408,7 @@ namespace Step89
 
 
   //@sect3{Boundary conditions}
-  //  
+  //
   // To be able to use the same kernel, for all face integrals we define
   // a class that returns the needed values at boundaries. In this tutorial
   // homogenous pressure Dirichlet boundary conditions are applied via
@@ -452,7 +452,7 @@ namespace Step89
   };
 
   //@sect3{Acoustic operator}
-  //  
+  //
   // Class that defines the acoustic operator.
   template <int dim, typename Number>
   class AcousticOperator
@@ -521,15 +521,16 @@ namespace Step89
 
           // Perform matrix free loop and choose correct boundary face loop
           // to use Nitsche-type mortaring.
-          matrix_free.loop(&AcousticOperator::local_apply_cell,
-                           &AcousticOperator::local_apply_face,
-                           &AcousticOperator::local_apply_boundary_face_mortaring,
-                           this,
-                           dst,
-                           src,
-                           true,
-                           MatrixFree<dim, Number>::DataAccessOnFaces::values,
-                           MatrixFree<dim, Number>::DataAccessOnFaces::values);
+          matrix_free.loop(
+            &AcousticOperator::local_apply_cell,
+            &AcousticOperator::local_apply_face,
+            &AcousticOperator::local_apply_boundary_face_mortaring,
+            this,
+            dst,
+            src,
+            true,
+            MatrixFree<dim, Number>::DataAccessOnFaces::values,
+            MatrixFree<dim, Number>::DataAccessOnFaces::values);
         }
       else
         {
@@ -540,26 +541,27 @@ namespace Step89
 
           // Perform matrix free loop and choose correct boundary face loop
           // to use point-to-point interpolation.
-          matrix_free.loop(&AcousticOperator::local_apply_cell,
-                           &AcousticOperator::local_apply_face,
-                           &AcousticOperator::local_apply_boundary_face_point_to_point,
-                           this,
-                           dst,
-                           src,
-                           true,
-                           MatrixFree<dim, Number>::DataAccessOnFaces::values,
-                           MatrixFree<dim, Number>::DataAccessOnFaces::values);
+          matrix_free.loop(
+            &AcousticOperator::local_apply_cell,
+            &AcousticOperator::local_apply_face,
+            &AcousticOperator::local_apply_boundary_face_point_to_point,
+            this,
+            dst,
+            src,
+            true,
+            MatrixFree<dim, Number>::DataAccessOnFaces::values,
+            MatrixFree<dim, Number>::DataAccessOnFaces::values);
         }
     }
 
   private:
     // This function evaluates the volume integrals.
     template <typename VectorType>
-    void
-    local_apply_cell(const MatrixFree<dim, Number>               &matrix_free,
-              VectorType                                  &dst,
-              const VectorType                            &src,
-              const std::pair<unsigned int, unsigned int> &cell_range) const
+    void local_apply_cell(
+      const MatrixFree<dim, Number>               &matrix_free,
+      VectorType                                  &dst,
+      const VectorType                            &src,
+      const std::pair<unsigned int, unsigned int> &cell_range) const
     {
       FEEvaluation<dim, -1, 0, 1, Number>   pressure(matrix_free, 0, 0, 0);
       FEEvaluation<dim, -1, 0, dim, Number> velocity(matrix_free, 0, 0, 1);
@@ -644,23 +646,27 @@ namespace Step89
 
     // This function evaluates the fluxes at faces between cells with differnet
     // materials. This can only happen over non-matching interfaces. Therefore,
-    // it is clear that weight_neighbor=false. PM: to make this function symmetrical, 
-    // I would make weight_neighbor an argument and assert that the value is false.
-    template <typename InternalFaceIntegratorPressure,
-              typename InternalFaceIntegratorVelocity,
-              typename ExternalFaceIntegratorPressure,
-              typename ExternalFaceIntegratorVelocity,
-              bool mortaring> // PM: I would remove this template argument (also from RemoteMaterialHandler)
-    void evaluate_face_kernel_inhomogeneous(
-      InternalFaceIntegratorPressure &pressure_m,
-      InternalFaceIntegratorVelocity &velocity_m,
-      ExternalFaceIntegratorPressure &pressure_p,
-      ExternalFaceIntegratorVelocity &velocity_p,
-      const std::pair<typename InternalFaceIntegratorPressure::value_type,
-                      typename InternalFaceIntegratorPressure::value_type>
-                                                          &materials,
-      const RemoteMaterialHandler<dim, Number, mortaring> &material_handler_r)
-      const
+    // it is clear that weight_neighbor=false. PM: to make this function
+    // symmetrical, I would make weight_neighbor an argument and assert that the
+    // value is false.
+    template <
+      typename InternalFaceIntegratorPressure,
+      typename InternalFaceIntegratorVelocity,
+      typename ExternalFaceIntegratorPressure,
+      typename ExternalFaceIntegratorVelocity,
+      bool mortaring> // PM: I would remove this template argument (also from
+                      // RemoteMaterialHandler)
+                      void evaluate_face_kernel_inhomogeneous(
+                        InternalFaceIntegratorPressure &pressure_m,
+                        InternalFaceIntegratorVelocity &velocity_m,
+                        ExternalFaceIntegratorPressure &pressure_p,
+                        ExternalFaceIntegratorVelocity &velocity_p,
+                        const std::pair<
+                          typename InternalFaceIntegratorPressure::value_type,
+                          typename InternalFaceIntegratorPressure::value_type>
+                          &materials,
+                        const RemoteMaterialHandler<dim, Number, mortaring>
+                          &material_handler_r) const
     {
       // The material at the current cell is constant.
       const auto [c, rho] = materials;
@@ -703,11 +709,11 @@ namespace Step89
 
     // This function evaluates the inner face integrals.
     template <typename VectorType>
-    void
-    local_apply_face(const MatrixFree<dim, Number>               &matrix_free,
-              VectorType                                  &dst,
-              const VectorType                            &src,
-              const std::pair<unsigned int, unsigned int> &face_range) const
+    void local_apply_face(
+      const MatrixFree<dim, Number>               &matrix_free,
+      VectorType                                  &dst,
+      const VectorType                            &src,
+      const std::pair<unsigned int, unsigned int> &face_range) const
     {
       FEFaceEvaluation<dim, -1, 0, 1, Number> pressure_m(
         matrix_free, true, 0, 0, 0);
@@ -733,7 +739,8 @@ namespace Step89
           velocity_m.gather_evaluate(src, EvaluationFlags::values);
           velocity_p.gather_evaluate(src, EvaluationFlags::values);
 
-          material_handler->reinit_face(face); // PM: currently this is not thread-safe. We might need
+          material_handler->reinit_face(
+            face); // PM: currently this is not thread-safe. We might need
           // to split up material_handler: 1) vectors of
           // materials vs. 2) current state of each tread.
           evaluate_face_kernel<true>(pressure_m,
@@ -751,7 +758,7 @@ namespace Step89
 
 
     //@sect4{Matrix-free boundary function for point-to-point interpolation}
-    //  
+    //
     // This function evaluates the boundary face integrals and the
     // non-matching face integrals using point-to-point interpolation.
     template <typename VectorType>
@@ -780,7 +787,7 @@ namespace Step89
           pressure_m.gather_evaluate(src, EvaluationFlags::values);
           velocity_m.gather_evaluate(src, EvaluationFlags::values);
 
-        if (HelperFunctions::is_non_matching_face(
+          if (HelperFunctions::is_non_matching_face(
                 remote_face_ids, matrix_free.get_boundary_id(face)))
             {
               // If @c face is nonmatching we have to query values via the
@@ -795,7 +802,8 @@ namespace Step89
               // For point-to-point interpolation we simply use the
               // corresponding FERemoteEvaluaton objects in combination with the
               // standard FEFaceEvaluation objects.
-              velocity_r->reinit(face); // PM: this is also not thread-safe right now
+              velocity_r->reinit(
+                face); // PM: this is also not thread-safe right now
               pressure_r->reinit(face);
 
               material_handler->reinit_face(face);
@@ -818,15 +826,16 @@ namespace Step89
                   // If in-homogenous material is considered use the
                   // in-homogenous fluxes.
                   material_handler_r->reinit_face(face);
-                  evaluate_face_kernel_inhomogeneous(pressure_m,
-                                       velocity_m,
-                                       *pressure_r,
-                                       *velocity_r,
-                                       material_handler->get_materials(),
-                                       *material_handler_r);
+                  evaluate_face_kernel_inhomogeneous(
+                    pressure_m,
+                    velocity_m,
+                    *pressure_r,
+                    *velocity_r,
+                    material_handler->get_materials(),
+                    *material_handler_r);
                 }
             }
-else
+          else
             {
               // If @c face is a standard boundary face, evaluate the integral
               // as usual in the matrix free context. To be able to use the same
@@ -847,7 +856,7 @@ else
     }
 
     //@sect4{Matrix-free boundary function for Nitsche-type mortaring}
-    //  
+    //
     // This function evaluates the boundary face integrals and the
     // non-matching face integrals using Nitsche-type mortaring.
     template <typename VectorType>
@@ -887,7 +896,7 @@ else
         matrix_free.get_dof_handler().get_fe().dofs_per_cell);
 
       for (unsigned int face = face_range.first; face < face_range.second;
-           ++face) 
+           ++face)
         {
           if (HelperFunctions::is_non_matching_face(
                 remote_face_ids, matrix_free.get_boundary_id(face)))
@@ -944,23 +953,27 @@ else
                       // material_handler->get_materials(v).
                       material_handler_r_mortar->reinit_face(
                         cell->active_cell_index(), f);
-                      evaluate_face_kernel_inhomogeneous(pressure_m_mortar,
-                                           velocity_m_mortar,
-                                           *pressure_r_mortar,
-                                           *velocity_r_mortar,
-                                           material_handler->get_materials(v),
-                                           *material_handler_r_mortar);
+                      evaluate_face_kernel_inhomogeneous(
+                        pressure_m_mortar,
+                        velocity_m_mortar,
+                        *pressure_r_mortar,
+                        *velocity_r_mortar,
+                        material_handler->get_materials(v),
+                        *material_handler_r_mortar);
                     }
 
-                  // @c integrate(/*sum_into_values=*/false) zeroes out the whole buffer and
-                  // writes the integrated values in the correct palces of the buffer.
+                  // @c integrate(/*sum_into_values=*/false) zeroes out the
+                  // whole buffer and writes the integrated values in the
+                  // correct palces of the buffer.
                   velocity_m_mortar.integrate(buffer,
                                               EvaluationFlags::values,
                                               /*sum_into_values=*/false);
 
-                  // We have to call @c integrate(/*sum_into_values=*/true) to avoid that the
-                  // vales written by velocity_m_mortar.integrate() are zeroed out.
-                  // TODO: should integrate only zero out the values it writes to?
+                  // We have to call @c integrate(/*sum_into_values=*/true) to
+                  // avoid that the vales written by
+                  // velocity_m_mortar.integrate() are zeroed out.
+                  // TODO: should integrate only zero out the values it writes
+                  // to?
                   pressure_m_mortar.integrate(buffer,
                                               EvaluationFlags::values,
                                               /*sum_into_values=*/true);
@@ -1020,7 +1033,7 @@ else
   };
 
   //@sect3{Inverse mass operator}
-  //  
+  //
   // Class to apply the inverse mass operator.
   template <int dim, typename Number>
   class InverseMassOperator
@@ -1036,17 +1049,20 @@ else
     void apply(VectorType &dst, const VectorType &src) const
     {
       dst.zero_out_ghost_values();
-      matrix_free.cell_loop(&InverseMassOperator::local_apply_cell, this, dst, src);
+      matrix_free.cell_loop(&InverseMassOperator::local_apply_cell,
+                            this,
+                            dst,
+                            src);
     }
 
   private:
     // Apply the inverse mass operator onto every cell batch.
     template <typename VectorType>
-    void
-    local_apply_cell(const MatrixFree<dim, Number>               &mf,
-              VectorType                                  &dst,
-              const VectorType                            &src,
-              const std::pair<unsigned int, unsigned int> &cell_range) const
+    void local_apply_cell(
+      const MatrixFree<dim, Number>               &mf,
+      VectorType                                  &dst,
+      const VectorType                            &src,
+      const std::pair<unsigned int, unsigned int> &cell_range) const
     {
       FEEvaluation<dim, -1, 0, dim + 1, Number> phi(mf);
       MatrixFreeOperators::CellwiseInverseMassMatrix<dim, -1, dim + 1, Number>
@@ -1066,7 +1082,7 @@ else
   };
 
   //@sect3{Runge-Kutta timestepping}
-  //  
+  //
   // This class implements a Runge-Kutta scheme of order 2.
   template <int dim, typename Number>
   class RungeKutta2
@@ -1259,8 +1275,8 @@ else
   //
   // The main purpose of this function is to fill the remote communicator that
   // is needed for point-to-point interpolation. Using this remote communicator
-  // also the corresponding remote evaluators are setup. Eventually, the operators
-  // are handed to the time integrator that runs the simulation.
+  // also the corresponding remote evaluators are setup. Eventually, the
+  // operators are handed to the time integrator that runs the simulation.
   //
   // TODO: check if everything is correct(that means if the instable
   // result is expected in this configuration)!
@@ -1389,7 +1405,8 @@ else
 
                 // TODO: Only the information of the quadrature size is needed
                 // (MARCO/PETER)
-                global_quadrature_vector[bface] = // PM: this is odd!? Why do wee need empty quadratures?
+                global_quadrature_vector[bface] = // PM: this is odd!? Why do
+                                                  // wee need empty quadratures?
                   Quadrature<dim>(phi.get_quadrature_points().size());
               }
           }
@@ -1493,8 +1510,8 @@ else
       global_quadrature_vector.emplace_back(
         std::vector<Quadrature<dim - 1>>(cell->n_faces()));
 
-    // In case of Nitsche-type mortaring a vector of pairs with cell iterators and
-    // face number is needed as communication object. 
+    // In case of Nitsche-type mortaring a vector of pairs with cell iterators
+    // and face number is needed as communication object.
     using CommunicationObjet = std::pair<
       std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>>,
       std::vector<
@@ -1593,7 +1610,8 @@ else
         //  Quadrature<dim> instead <dim-1>. Currently we are constructing
         //  dim-1 from dim and inside MappingInfo it is converted back.
         // PM: There will be something like this; see
-        // commit https://github.com/bergbauer/dealii/commit/accc2c71dc1b986d400b5f562ec92af50c637517
+        // commit
+        // https://github.com/bergbauer/dealii/commit/accc2c71dc1b986d400b5f562ec92af50c637517
         // in https://github.com/bergbauer/dealii/commits/mapping_info_fcl.
 
         // 3) Fill global quadrature vector.
@@ -1798,13 +1816,14 @@ int main(int argc, char *argv[])
     "vm-p2p");
 
   // Run vibrating membrane testcase using Nitsche-type mortaring:
-  Step89::run_with_nitsche_type_mortaring(matrix_free,
-                                 non_matching_faces,
-                                 homogenous_material,
-                                 initial_solution_membrane.get_period_duration(
-                                   homogenous_material.begin()->second.first),
-                                 initial_solution_membrane,
-                                 "vm-nitsche");
+  Step89::run_with_nitsche_type_mortaring(
+    matrix_free,
+    non_matching_faces,
+    homogenous_material,
+    initial_solution_membrane.get_period_duration(
+      homogenous_material.begin()->second.first),
+    initial_solution_membrane,
+    "vm-nitsche");
 
   // In-homogenous material testcase:
   //
@@ -1813,11 +1832,11 @@ int main(int argc, char *argv[])
   inhomogenous_material[0] = std::make_pair(1.0, 1.0);
   inhomogenous_material[1] = std::make_pair(3.0, 1.0);
   Step89::run_with_nitsche_type_mortaring(matrix_free,
-                                 non_matching_faces,
-                                 inhomogenous_material,
-                                 /*runtime*/ 0.3,
-                                 Step89::GaussPulse<dim>(0.3, 0.5),
-                                 "inhomogenous");
+                                          non_matching_faces,
+                                          inhomogenous_material,
+                                          /*runtime*/ 0.3,
+                                          Step89::GaussPulse<dim>(0.3, 0.5),
+                                          "inhomogenous");
 
 
   return 0;

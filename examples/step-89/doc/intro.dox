@@ -176,7 +176,7 @@ per meter. The corresponding analytical solution reads
 For simplicity, we are using homogenous pressure Dirichlet boundary conditions within this tutorial.
 To be able to do so we have to taylor the domain size as well as the number of modes to conform with
 the homogenous pressure Dirichlet boundary conditions. Within this tutorial we are using $M=10$ and
-a domain that spans from $(0,0)$ to $(1,1)$. 
+a domain that spans from $(0,0)$ to $(1,1)$.
 
 For the point-to-point interpolation we observe instabilities which can be resolved using Nitsche-type mortaring.
 
