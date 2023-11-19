@@ -162,10 +162,27 @@ where @c use_matrix_free_batches=true.
 <h3>Overview</h3>
 
 In the following, point-to-point interpolation and Nitsche-type mortaring is implemented.
-At first we are considering the test case of a vibrating membrane (PM: add some description/equations?), for which the analytical
-solution is known. For the point-to-point interpolation we observe instabilities which can
-be resolved using Nitsche-type mortaring.
+
+At first we are considering the test case of a vibrating membrane, see e.g. @cite nguyen2011high.
+Standing waves of length $\lambda=2/M$ are oscillating with a period duration of
+$2 / (M \sqrt(dim) c)$. $M$ are the number of modes per meter, i.e. the number of half-waves
+per meter. The corresponding analytical solution reads
+
+@f[
+  p =\cos(M \sqrt{d} \pi c t)\prod_{i=1}^{d} \sin(M \pi x_i),\\
+  u_i=-\frac{\sin(M \sqrt{d} \pi c t)}{\sqrt{d}\rho c} \cos(M \pi x_i)\prod_{j=1,j\neq i}^{d} \sin(M \pi x_j),
+@f]
+
+For simplicity, we are using homogenous pressure Dirichlet boundary conditions within this tutorial.
+To be able to do so we have to taylor the domain size as well as the number of modes to conform with
+the homogenous pressure Dirichlet boundary conditions. Within this tutorial we are using $M=10$ and
+a domain that spans from $(0,0)$ to $(1,1)$. 
+
+For the point-to-point interpolation we observe instabilities which can be resolved using Nitsche-type mortaring.
+
 In a more realistic example, we effectvely apply the implementations to a test case in which a wave
-is propagating from one fluid into another fluid. I.e., the wave length is directly proportional to the
-speed of sound and therefore, different element sizes are required to resolve waves up to the same
-frequency in both fluids.
+is propagating from one fluid into another fluid. The speed of sound in the left part of the domain
+the speed of sound is $c=1$ and in the right part it is $c=3$. Since the wave length is directly proportional
+to the speed of sound, three times larger elements can be used in the right part of the domain to resolve waves
+up to the same frequency. The test case has been simulated with a different domain and different initial
+conditions, e.g. in @cite bangerth2010adaptive.
