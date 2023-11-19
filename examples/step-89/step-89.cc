@@ -1095,7 +1095,7 @@ namespace Step89
              const double                   end_time,
              const double                   speed_of_sound,
              const Function<dim>           &initial_condition,
-             const std::string             &vtk_postfix) // PM: prefix?
+             const std::string             &vtk_prefix)
     {
       // Get needed members of matrix free.
       const auto &dof_handler = matrix_free.get_dof_handler();
@@ -1140,7 +1140,7 @@ namespace Step89
                                      matrix_free.get_dof_handler(),
                                      mapping,
                                      degree,
-                                     "step_89-" + vtk_postfix +
+                                     "step_89-" + vtk_prefix +
                                        std::to_string(timestep));
 
           // Perform a single time step.
@@ -1283,7 +1283,7 @@ namespace Step89
     const std::map<types::material_id, std::pair<double, double>> &materials,
     const double                                                   end_time,
     const Function<dim> &initial_condition,
-    const std::string   &vtk_postfix)
+    const std::string   &vtk_prefix)
   {
     const auto &dof_handler = matrix_free.get_dof_handler();
     const auto &tria        = dof_handler.get_triangulation();
@@ -1476,7 +1476,7 @@ namespace Step89
                         end_time,
                         speed_of_sound_max,
                         initial_condition,
-                        vtk_postfix);
+                        vtk_prefix);
   }
 
   // @sect3{Nitsche-type mortaring}
@@ -1491,7 +1491,7 @@ namespace Step89
     const std::map<types::material_id, std::pair<double, double>> &materials,
     const double                                                   end_time,
     const Function<dim> &initial_condition,
-    const std::string   &vtk_postfix)
+    const std::string   &vtk_prefix)
   {
     const auto &dof_handler       = matrix_free.get_dof_handler();
     const auto &tria              = dof_handler.get_triangulation();
@@ -1751,7 +1751,7 @@ namespace Step89
                         end_time,
                         speed_of_sound_max,
                         initial_condition,
-                        vtk_postfix);
+                        vtk_prefix);
   }
 } // namespace Step89
 
