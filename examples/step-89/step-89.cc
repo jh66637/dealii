@@ -521,9 +521,9 @@ namespace Step89
 
           // Perform matrix free loop and choose correct boundary face loop
           // to use Nitsche-type mortaring.
-          matrix_free.loop(&AcousticOperator::cell_loop, // PM: local_apply_cell
-                           &AcousticOperator::face_loop,
-                           &AcousticOperator::boundary_face_loop_mortaring,
+          matrix_free.loop(&AcousticOperator::local_apply_cell,
+                           &AcousticOperator::local_apply_face,
+                           &AcousticOperator::local_apply_boundary_face_mortaring,
                            this,
                            dst,
                            src,
@@ -540,9 +540,9 @@ namespace Step89
 
           // Perform matrix free loop and choose correct boundary face loop
           // to use point-to-point interpolation.
-          matrix_free.loop(&AcousticOperator::cell_loop,
-                           &AcousticOperator::face_loop,
-                           &AcousticOperator::boundary_face_loop_point_to_point,
+          matrix_free.loop(&AcousticOperator::local_apply_cell,
+                           &AcousticOperator::local_apply_face,
+                           &AcousticOperator::local_apply_boundary_face_point_to_point,
                            this,
                            dst,
                            src,
@@ -556,7 +556,7 @@ namespace Step89
     // This function evaluates the volume integrals.
     template <typename VectorType>
     void
-    cell_loop(const MatrixFree<dim, Number>               &matrix_free,
+    local_apply_cell(const MatrixFree<dim, Number>               &matrix_free,
               VectorType                                  &dst,
               const VectorType                            &src,
               const std::pair<unsigned int, unsigned int> &cell_range) const
@@ -704,7 +704,7 @@ namespace Step89
     // This function evaluates the inner face integrals.
     template <typename VectorType>
     void
-    face_loop(const MatrixFree<dim, Number>               &matrix_free,
+    local_apply_face(const MatrixFree<dim, Number>               &matrix_free,
               VectorType                                  &dst,
               const VectorType                            &src,
               const std::pair<unsigned int, unsigned int> &face_range) const
@@ -755,7 +755,7 @@ namespace Step89
     // This function evaluates the boundary face integrals and the
     // non-matching face integrals using point-to-point interpolation.
     template <typename VectorType>
-    void boundary_face_loop_point_to_point(
+    void local_apply_boundary_face_point_to_point(
       const MatrixFree<dim, Number>               &matrix_free,
       VectorType                                  &dst,
       const VectorType                            &src,
@@ -853,7 +853,7 @@ namespace Step89
     // This function evaluates the boundary face integrals and the
     // non-matching face integrals using Nitsche-type mortaring.
     template <typename VectorType>
-    void boundary_face_loop_mortaring(
+    void local_apply_boundary_face_mortaring(
       const MatrixFree<dim, Number>               &matrix_free,
       VectorType                                  &dst,
       const VectorType                            &src,
@@ -894,7 +894,7 @@ namespace Step89
           if (!HelperFunctions::is_non_matching_face(
                 remote_face_ids, matrix_free.get_boundary_id(face)))
             {
-              // Same as in @c boundary_face_loop_point_to_point().
+              // Same as in @c local_apply_boundary_face_point_to_point().
               velocity_m.reinit(face);
               pressure_m.reinit(face);
 
@@ -1038,14 +1038,14 @@ namespace Step89
     void apply(VectorType &dst, const VectorType &src) const
     {
       dst.zero_out_ghost_values();
-      matrix_free.cell_loop(&InverseMassOperator::cell_loop, this, dst, src);
+      matrix_free.cell_loop(&InverseMassOperator::local_apply_cell, this, dst, src);
     }
 
   private:
     // Apply the inverse mass operator onto every cell batch.
     template <typename VectorType>
     void
-    cell_loop(const MatrixFree<dim, Number>               &mf,
+    local_apply_cell(const MatrixFree<dim, Number>               &mf,
               VectorType                                  &dst,
               const VectorType                            &src,
               const std::pair<unsigned int, unsigned int> &cell_range) const
