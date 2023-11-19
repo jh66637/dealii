@@ -1503,20 +1503,8 @@ namespace Step89
       global_quadrature_vector.emplace_back(
         std::vector<Quadrature<dim - 1>>(cell->n_faces()));
 
-    // Communication objects know about the communication pattern. I.e.,
-    // they know about the cells and quadrature ponts that have to be
-    // evaluated at remote faces. This information is given via
-    // RemotePointEvaluation. Additionally, the communication objects
-    // have to be able to match the quadrature points of the remote
-    // points (that provide exterior information) to the quadrature points
-    // defined at the interior cell. In case of Nitsche-type mortaring
-    // a vector of pairs with cell iterators and face number is needed. The
-    // information is filled outside of the actual class since in some cases the
-    // information is available from some heuristic and it is possible to skip
-    // some expensive operations. This is for example the case for sliding
-    // rotating interfaces with equally spaced elements on both sides of the
-    // non-matching interface @cite duerrwaechter2021an.
-    // PM: same text as above; if yes, let's remove it!
+    // In case of Nitsche-type mortaring a vector of pairs with cell iterators and
+    // face number is needed as communication object. 
     using CommunicationObjet = std::pair<
       std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>>,
       std::vector<
