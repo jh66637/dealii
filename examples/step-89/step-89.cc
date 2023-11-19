@@ -1265,19 +1265,14 @@ namespace Step89
   //
   // The main purpose of this function is to fill the remote communicator that
   // is needed for point-to-point interpolation. Using this remote communicator
-  // also the corresponding remote evaluators are setup.
+  // also the corresponding remote evaluators are setup. Eventually, the operators
+  // are handed to the time integrator that runs the simulation.
   //
   // TODO: check if everything is correct(that means if the instable
   // result is expected in this configuration)!
   //
-  // PM: the function is misleading; what about:
-  // run_with_point_to_point_interpolation() 
-  //
-  // PM: I guess this function does more than only setting up the communication;
-  // is also calles the time integrator. So that the function description seems
-  // to be out of date!?
   template <int dim, typename Number>
-  void point_to_point_interpolation(
+  void run_with_point_to_point_interpolation(
     const MatrixFree<dim, Number>      &matrix_free,
     const std::set<types::boundary_id> &non_matching_faces,
     const std::map<types::material_id, std::pair<double, double>> &materials,
@@ -1483,9 +1478,10 @@ namespace Step89
   //
   // The main purpose of this function is to fill the remote communicator that
   // is needed for Nitsche-type mortaring. Using this remote communicator also
-  // the corresponding remote evaluators are setup.
+  // the corresponding remote evaluators are setup. Eventually, the operators
+  // are handed to the time integrator that runs the simulation.
   template <int dim, typename Number>
-  void nitsche_type_mortaring(
+  void run_with_nitsche_type_mortaring(
     const MatrixFree<dim, Number>      &matrix_free,
     const std::set<types::boundary_id> &non_matching_faces,
     const std::map<types::material_id, std::pair<double, double>> &materials,
@@ -1798,7 +1794,7 @@ int main(int argc, char *argv[])
     Step89::InitialConditionVibratingMembrane<dim>(modes);
 
   // Run vibrating membrane testcase using point-to-point interpolation:
-  Step89::point_to_point_interpolation(
+  Step89::run_with_point_to_point_interpolation(
     matrix_free,
     non_matching_faces,
     homogenous_material,
@@ -1808,7 +1804,7 @@ int main(int argc, char *argv[])
     "vm-p2p");
 
   // Run vibrating membrane testcase using Nitsche-type mortaring:
-  Step89::nitsche_type_mortaring(matrix_free,
+  Step89::run_with_nitsche_type_mortaring(matrix_free,
                                  non_matching_faces,
                                  homogenous_material,
                                  initial_solution_membrane.get_period_duration(
@@ -1822,7 +1818,7 @@ int main(int argc, char *argv[])
   std::map<types::material_id, std::pair<double, double>> inhomogenous_material;
   inhomogenous_material[0] = std::make_pair(1.0, 1.0);
   inhomogenous_material[1] = std::make_pair(3.0, 1.0);
-  Step89::nitsche_type_mortaring(matrix_free,
+  Step89::run_with_nitsche_type_mortaring(matrix_free,
                                  non_matching_faces,
                                  inhomogenous_material,
                                  /*runtime*/ 0.3,
