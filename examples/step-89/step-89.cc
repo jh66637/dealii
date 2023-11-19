@@ -917,13 +917,6 @@ namespace Step89
               // batches seperately and have to use the FEPointEvaluation
               // objects to be able to evaluate the integrals with the
               // arbitrarily distributed quadrature points.
-              // 
-              // PM: I guess it is not guaranteed that all faces in the
-              // batch are non-matching? We might want to consider:
-              // 1) let FEEvaluation read the dof-values and do the evaluation
-              // if one lane is non-nonmatching, and 2) the lanes related
-              // to nonmatching faces are overriden. We could use a biset
-              // as in https://www.dealii.org/developer/doxygen/deal.II/classFEEvaluationBase.html#aff4ac5c0f5afb445a2a5cf9a0715a2fe.
               for (unsigned int v = 0;
                    v < matrix_free.n_active_entries_per_face_batch(face);
                    ++v)
