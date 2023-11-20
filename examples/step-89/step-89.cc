@@ -962,14 +962,14 @@ namespace Step89
                         *material_handler_r_mortar);
                     }
 
-                  // @c integrate(/*sum_into_values=*/false) zeroes out the
+                  // @c integrate(sum_into_values=false) zeroes out the
                   // whole buffer and writes the integrated values in the
                   // correct palces of the buffer.
                   velocity_m_mortar.integrate(buffer,
                                               EvaluationFlags::values,
                                               /*sum_into_values=*/false);
 
-                  // We have to call @c integrate(/*sum_into_values=*/true) to
+                  // We have to call @c integrate(sum_into_values=true) to
                   // avoid that the vales written by
                   // velocity_m_mortar.integrate() are zeroed out.
                   // TODO: should integrate only zero out the values it writes
