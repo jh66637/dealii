@@ -5,12 +5,20 @@
 <h3>Point-to-point interpolation vs. Nitsche-type mortaring</h3>
 
 We compare the results of the simulations after the last time step, i.e. at $t=2T$.
-At first, the pressure field is depicted.
+The pressure field using Nitsche-type mortaring is depicted on the left.
+The pressure field using point-to-point interpolation is depicted on the right.
 
 <b>TODO: all pictures should go to the dealii website to keep the source code small</b>
-
-@image html step-89-vm-cut.png "" width=30%
-@image html step-89-p2p-cut.png "" width=30%
+<table align="center" class="doxtable">
+  <tr>
+    <td>
+        @image html step-89-vm-cut.png "" width=30%
+    </td>
+    <td>
+        @image html step-89-vm-p2p.png "" width=30%
+    </td>
+  </tr>
+</table>
 
 Besides this, the results for the pressure and the velicty in $y$ direction
 are plotted along the horizontal line that spans from (0,0.5) to (1,0.5).
@@ -52,8 +60,23 @@ The pressure result is plotted along the horizontal line that spans from (0,0.5)
 The results, obtained with the non-matching discretization is in good result with
 the reference result.
 
-Note, that it would be easily possible to completely, skip the influence of the non-matching
+Note that it would be easily possible to completely, skip the influence of the non-matching
 discretization by using the inhomogenous fluxes on all faces and by constructing a
-conforming mesh, e.g. by setting the tolerance to $1e-6$ during the call of
+conforming mesh, e.g. by setting the tolerance to $1\times 10^{-6}$ during the call of
 @c GridGenerator::merge_triangulations(). However, to keep the effort low to
 recreate displayed results we refrain from doing so.
+
+<h2>Notes on overlapping triangulations</h2>
+
+All the implementations are done with overlapping triangulations in mind. In particular the
+intersections in the mortaring case are constructed such that they are computed correctly
+for overlapping triangulations. For this the intersection requests are of dimension $dim-1$.
+The cells which are intersected with the intersection requests are of dimension $dim$. For the
+simple case for non-conforming interfaces it would be sufficient to compute the intersections
+between $dim-1$ and $dim-1$ entities. Furthermore, the lambda could be adapted, such that cells are
+only marked if they are connected to a certain boundary ID (in this case, e.g. 99) instead of 
+marking every cell that is <i>not</i> connected to the opposite boundary ID (in this case, e.g. 98),
+which can generally significantly reduce the setup costs.
+
+Note that for inhomogenous material this procedure is questionable, since it is not clear which
+material is present in the overlapping part of the mesh. 

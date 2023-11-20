@@ -166,7 +166,7 @@ In the following, point-to-point interpolation and Nitsche-type mortaring is imp
 
 At first we are considering the test case of a vibrating membrane, see e.g. @cite nguyen2011high.
 Standing waves of length $\lambda=2/M$ are oscillating with a period duration of
-$T=2 / (M \sqrt(dim) c)$. $M$ are the number of modes per meter, i.e. the number of half-waves
+$T=2 / (M \sqrt{dim} c)$. $M$ are the number of modes per meter, i.e. the number of half-waves
 per meter. The corresponding analytical solution reads
 
 @f[
