@@ -8,16 +8,9 @@ We compare the results of the simulations after the last time step, i.e. at $t=2
 At first, the pressure field is depicted.
 
 <b>TODO: all pictures should go to the dealii website to keep the source code small</b>
-<table align="center" class="doxtable">
-  <tr>
-    <td>
-        @image html step-89-vm-cut.png
-    </td>
-    <td>
-        @image html step-89-p2p-cut.png
-    </td>
-  </tr>
-</table>
+
+@image html step-89-vm-cut.png "" width=30%
+@image html step-89-p2p-cut.png "" width=30%
 
 Besides this, the results for the pressure and the velicty in $y$ direction
 are plotted along the horizontal line that spans from (0,0.5) to (1,0.5).
