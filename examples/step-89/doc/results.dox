@@ -1,8 +1,6 @@
 <h1>Results</h1>
 
-<h2>Vibrating Membrane</h2>
-
-<h3>Point-to-point interpolation vs. Nitsche-type mortaring</h3>
+<h3>Vibrating membrane: Point-to-point interpolation vs. Nitsche-type mortaring</h3>
 
 We compare the results of the simulations after the last time step, i.e. at $t=2T$.
 The pressure field using Nitsche-type mortaring is depicted on the left.
@@ -35,7 +33,7 @@ accumulate and the simulation gets instable. To keep the tutorial short we have
 chosen one mesh that can be used for all examples. For a configuration that yields
 instable results for a wide range of polynomial degrees, see @cite heinz2023high. 
 
-<h2>Wave propagation through inhomogenous fluid</h2>
+<h3>Wave propagation through inhomogenous fluid</h3>
 
 This is just one example in which non-matching discretizations can be efficiently
 used to reduce the amount of DoFs. The example is nice, since results for a similar
@@ -66,7 +64,7 @@ conforming mesh, e.g. by setting the tolerance to $1\times 10^{-6}$ during the c
 @c GridGenerator::merge_triangulations(). However, to keep the effort low to
 recreate displayed results we refrain from doing so.
 
-<h2>Notes on overlapping triangulations</h2>
+<h3>Notes on overlapping triangulations</h3>
 
 All the implementations are done with overlapping triangulations in mind. In particular the
 intersections in the mortaring case are constructed such that they are computed correctly
