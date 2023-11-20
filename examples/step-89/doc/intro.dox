@@ -35,7 +35,7 @@ The set of equations consists of the conservation of mass and momentum
   \frac{\partial \, \mathbf{u}}{\partial \, t} + \frac{1}{\rho}\nabla p = \mathbf{0}.
 @f]
 Here, $p$ is the acoustic pressure, $\mathbf{u}$ the acoustic particle velocity, $c$ the
-speed of sound, and $\rho$ the medium density of the fluid in which waves are propagating.
+speed of sound, and $\rho$ the mean density of the fluid in which waves are propagating.
 Within this tutorial we are exclusively using homogenous pressure boundary conditions.
 For the discretization we make use of discontinuous Galerkin (DG) methods. DG methods are
 especially attractive for the acoustic conservation equations due to their low numerical
