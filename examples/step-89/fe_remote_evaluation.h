@@ -562,7 +562,7 @@ private:
               AssertIndexRange(j, dst.size());
               AssertIndexRange(c, src.size());
 
-              copy_data(dst[j], v, src[c]);
+              copy_data_entries(dst[j], v, src[c]);
             }
       }
   }
@@ -571,7 +571,7 @@ private:
    * Copy data between different data layouts.
    */
   template <typename T1, std::size_t n_lanes>
-  void copy_data(VectorizedArray<T1, n_lanes> &dst,
+  void copy_data_entries(VectorizedArray<T1, n_lanes> &dst,
                  const unsigned int            v,
                  const T1                     &src) const
   {
@@ -584,7 +584,7 @@ private:
    * Copy data between different data layouts.
    */
   template <typename T1, int rank_, std::size_t n_lanes, int dim_>
-  void copy_data(Tensor<rank_, dim_, VectorizedArray<T1, n_lanes>> &dst,
+  void copy_data_entries(Tensor<rank_, dim_, VectorizedArray<T1, n_lanes>> &dst,
                  const unsigned int                                 v,
                  const Tensor<rank_, dim_, T1>                     &src) const
   {
@@ -611,7 +611,7 @@ private:
             std::size_t n_lanes,
             int         n_components_,
             int         dim_>
-  void copy_data(
+  void copy_data_entries(
     Tensor<rank_,
            n_components_,
            Tensor<rank_, dim_, VectorizedArray<T1, n_lanes>>>   &dst,
