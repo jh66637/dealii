@@ -1480,9 +1480,10 @@ namespace Step89
     // Set up time integrator.
     RungeKutta2<dim, Number> time_integrator(inverse_mass_operator,
                                              acoustic_operator);
+
     // Run time loop with Courant number 0.1.
     time_integrator.run(matrix_free,
-                        /*Cr*/ 0.1,
+                        /*Cr*/ 0.2,
                         end_time,
                         speed_of_sound_max,
                         initial_condition,
@@ -1741,13 +1742,15 @@ namespace Step89
     for (const auto &mat : materials)
       speed_of_sound_max = std::max(speed_of_sound_max, mat.second.first);
 
+    ConditionalOStream pcout(std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
+
     // Setup time integrator.
     RungeKutta2<dim, Number> time_integrator(inverse_mass_operator,
                                              acoustic_operator);
 
     // Run time loop with Courant number 0.1.
     time_integrator.run(matrix_free,
-                        /*Cr*/ 0.1,
+                        /*Cr*/ 0.2,
                         end_time,
                         speed_of_sound_max,
                         initial_condition,
@@ -1768,26 +1771,35 @@ int main(int argc, char *argv[])
 
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
   std::cout.precision(5);
-
-  const unsigned int refinements = 3;
-  const unsigned int degree      = 4;
+  ConditionalOStream pcout(std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
+  
+  const unsigned int refinements = 2;
+  const unsigned int degree      = 5;
 
   // Construct non-matching triangulation and fill non-matching boundary IDs.
   parallel::distributed::Triangulation<dim> tria(MPI_COMM_WORLD);
+
+  pcout<<"Create non-matching grid..."<<std::endl;
+
   std::set<types::boundary_id>              non_matching_faces;
   Step89::build_non_matching_triangulation(tria,
                                            non_matching_faces,
                                            refinements);
 
+  pcout<<" - Refinement level: "<<refinements<<std::endl;
+  pcout<<" - Number of cells: "<<tria.n_cells()<<std::endl;
+  
   // Setup MatrixFree.
-  MatrixFree<dim, Number> matrix_free;
 
+  pcout<<"Create DoFHandler..."<<std::endl;
   DoFHandler<dim> dof_handler(tria);
   dof_handler.distribute_dofs(FESystem<dim>(FE_DGQ<dim>(degree), dim + 1));
+  pcout<<" - Number of DoFs: "<<dof_handler.n_dofs()<<std::endl;
 
   AffineConstraints<Number> constraints;
   constraints.close();
 
+  pcout<<"Setup MatrixFree..."<<std::endl;
   typename MatrixFree<dim, Number>::AdditionalData data;
   data.mapping_update_flags = update_gradients | update_values;
   data.mapping_update_flags_inner_faces =
@@ -1795,10 +1807,12 @@ int main(int argc, char *argv[])
   data.mapping_update_flags_boundary_faces =
     data.mapping_update_flags_inner_faces;
 
+  MatrixFree<dim, Number> matrix_free;
   matrix_free.reinit(
     MappingQ1<dim>(), dof_handler, constraints, QGauss<dim>(degree + 1), data);
 
 
+  pcout<<"Run vibrating membrane testcase..."<<std::endl;
   // Vibrating membrane testcase:
   //
   // Homogenous pressure DBCs are applied for simplicity. Therefore,
@@ -1809,26 +1823,29 @@ int main(int argc, char *argv[])
   const auto initial_solution_membrane =
     Step89::InitialConditionVibratingMembrane<dim>(modes);
 
+  pcout<<" - Point-to-point interpolation: "<<std::endl;
   // Run vibrating membrane testcase using point-to-point interpolation:
   Step89::run_with_point_to_point_interpolation(
     matrix_free,
     non_matching_faces,
     homogenous_material,
-    initial_solution_membrane.get_period_duration(
+    2.0*initial_solution_membrane.get_period_duration(
       homogenous_material.begin()->second.first),
     initial_solution_membrane,
     "vm-p2p");
 
+  pcout<<" - Nitsche-type mortaring: "<<std::endl;
   // Run vibrating membrane testcase using Nitsche-type mortaring:
   Step89::run_with_nitsche_type_mortaring(
     matrix_free,
     non_matching_faces,
     homogenous_material,
-    initial_solution_membrane.get_period_duration(
+    2.0*initial_solution_membrane.get_period_duration(
       homogenous_material.begin()->second.first),
     initial_solution_membrane,
     "vm-nitsche");
 
+  pcout<<"Run testcase with inhomogenous material..."<<std::endl;
   // In-homogenous material testcase:
   //
   // Run simple testcase with in-homogenous material and Nitsche-type mortaring:
