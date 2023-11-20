@@ -34,8 +34,8 @@ namespace internal
    * Type traits for supported FEEvaluationTypes. Different FEEvaluationTypes
    * need different communication objects and different access to data at
    * quadrature points. Each specialization defines its CommunicationObjectType
-   * and if a two level CRS structure is needed to access the data by the
-   * memeber `cell_face_pairs`. The same type with a different numer of
+   * and whether a two level CRS structure is needed to access the data by the
+   * memeber `cell_face_pairs`. The same type with a different number of
    * components can be obtained with FEEvaluationTypeComponents.
    */
   template <bool is_face, bool use_matrix_free_batches>
@@ -193,12 +193,12 @@ namespace internal
       template gradient_type<dim, n_components, Number, VectorizedArrayType>;
 
     /**
-     * values at quadrature points.
+     * Values at quadrature points.
      */
     std::vector<value_type> values;
 
     /**
-     * gradients at quadrature points.
+     * Gradients at quadrature points.
      */
     std::vector<gradient_type> gradients;
   };
@@ -774,7 +774,7 @@ public:
   }
 
   /**
-   * Get the gradients at quadrature pointt @p q. The entity on which the
+   * Get the gradients at quadrature point @p q. The entity on which the
    * gradients are defined is set via `reinit()`.
    */
   const gradient_type get_gradient(const unsigned int q) const
