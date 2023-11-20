@@ -15,6 +15,7 @@ and Innovation Horizon 2020 (2014-2020) under the Marie Skłodowská--Curie Gran
 Agreement No. [812719].
 </i>
 
+<b>TODO: update the zenodo entry</b>
 @dealiiTutorialDOI{10.5281/zenodo.10033975,https://zenodo.org/badge/DOI/10.5281/zenodo.10033975.svg}
 
 <h1>Introduction</h1>
@@ -165,7 +166,7 @@ In the following, point-to-point interpolation and Nitsche-type mortaring is imp
 
 At first we are considering the test case of a vibrating membrane, see e.g. @cite nguyen2011high.
 Standing waves of length $\lambda=2/M$ are oscillating with a period duration of
-$2 / (M \sqrt(dim) c)$. $M$ are the number of modes per meter, i.e. the number of half-waves
+$T=2 / (M \sqrt(dim) c)$. $M$ are the number of modes per meter, i.e. the number of half-waves
 per meter. The corresponding analytical solution reads
 
 @f[
@@ -178,7 +179,7 @@ To be able to do so we have to taylor the domain size as well as the number of m
 the homogenous pressure Dirichlet boundary conditions. Within this tutorial we are using $M=10$ and
 a domain that spans from $(0,0)$ to $(1,1)$.
 
-For the point-to-point interpolation we observe instabilities which can be resolved using Nitsche-type mortaring.
+For the point-to-point interpolation we observe aliasing which can be resolved using Nitsche-type mortaring.
 
 In a more realistic example, we effectvely apply the implementations to a test case in which a wave
 is propagating from one fluid into another fluid. The speed of sound in the left part of the domain

@@ -1,10 +1,66 @@
 <h1>Results</h1>
 
-<h3>Point-to-point interpolation</h3>
-<b>TODO:</b>
+<h2>Vibrating Membrane</h2>
 
-<h3>Nitsche-type mortaring</h3>
-<b>TODO:</b>
+<h3>Point-to-point interpolation vs. Nitsche-type mortaring</h3>
 
-<h3>Wave propagation through inhomogenous fluid</h3>
-<b>TODO:</b>
+We compare the results of the simulations after the last time step, i.e. at $t=2T$.
+At first, the pressure field is depicted.
+
+<b>TODO: all pictures should go to the dealii website to keep the source code small</b>
+<table align="center" class="doxtable">
+  <tr>
+    <td>
+        @image html step-89-vm-cut.png
+    </td>
+    <td>
+        @image html step-89-p2p-cut.png
+    </td>
+  </tr>
+</table>
+
+Besides this, the results for the pressure and the velicty in $y$ direction
+are plotted along the horizontal line that spans from (0,0.5) to (1,0.5).
+Along this line and at $t=2T$, both results are expected to be zero. 
+
+@image html step-89-p.png "" width=30%
+@image html step-89-uy.png "" width=30%
+
+Clearly, the results differ. While the results for Nitsche-type mortaring
+are close to the analytical solution, we can see aliasing errors
+for the point-to-point interpolation. For different mesh configurations and/or
+longer run times, the aliasing effects of the point-to-point simulation
+accumulate and the simulation gets instable. To keep the tutorial short we have
+chosen one mesh that can be used for all examples. For a configuration that yields
+instable results for a wide range of polynomial degrees, see @cite heinz2023high. 
+
+<h2>Wave propagation through inhomogenous fluid</h2>
+
+This is just one example in which non-matching discretizations can be efficiently
+used to reduce the amount of DoFs. The example is nice, since results for a similar
+test case are shown in multiple publications. As before, we slightly adapted the
+test case to be able to use the same mesh for all simulations. The pressure field
+at $t=0.3$ is depicted below.
+
+@image html step-89-inhomogenous-p.png "" width=30%
+
+As expected, we can easily see that the wave length in the right domain is roughly
+three times times the wave length in the left domain. Hence, the wave can be
+resolved with a coarser discretization. 
+
+Using the same element size in the whole domain, we can compute a reference result.
+The displayed reference result is obtained by choosing the same subdivision level
+for both subdomains, i.e. @c subdiv_right = 3. In this particular example the
+reference result uses $62208$ DoFs, while the non-matching result uses $34560$ DoFs.
+The pressure result is plotted along the horizontal line that spans from (0,0.5) to (1,0.5).
+
+@image html step-89-inhomogenous-ref.png "" width=30%
+
+The results, obtained with the non-matching discretization is in good result with
+the reference result.
+
+Note, that it would be easily possible to completely, skip the influence of the non-matching
+discretization by using the inhomogenous fluxes on all faces and by constructing a
+conforming mesh, e.g. by setting the tolerance to $1e-6$ during the call of
+@c GridGenerator::merge_triangulations(). However, to keep the effort low to
+recreate displayed results we refrain from doing so.
