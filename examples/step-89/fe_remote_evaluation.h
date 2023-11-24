@@ -661,7 +661,7 @@ template <int dim,
           typename VectorizedArrayType,
           bool is_face,
           bool use_matrix_free_batches>
-class FERemoteEvaluation
+class FERemoteEvaluationCache
 {
   using FERemoteEvaluationCommunicatorType =
     FERemoteEvaluationCommunicator<dim, is_face, use_matrix_free_batches>;
@@ -695,16 +695,14 @@ public:
    * DoFHandlers with multiple components.
    */
   template <typename MeshType>
-  FERemoteEvaluation(const FERemoteEvaluationCommunicatorType &comm,
-                     const MeshType                           &mesh,
-                     const unsigned int first_selected_component = 0,
-                     const VectorTools::EvaluationFlags::EvaluationFlags
-                       vt_flags = VectorTools::EvaluationFlags::avg)
+  FERemoteEvaluationCache(const FERemoteEvaluationCommunicatorType &comm,
+                          const MeshType                           &mesh,
+                          const unsigned int first_selected_component = 0,
+                          const VectorTools::EvaluationFlags::EvaluationFlags
+                            vt_flags = VectorTools::EvaluationFlags::avg)
     : comm(&comm)
     , first_selected_component(first_selected_component)
     , vt_flags(vt_flags)
-    , data_offset(numbers::invalid_unsigned_int)
-
   {
     set_mesh(mesh);
   }
@@ -742,30 +740,11 @@ public:
   }
 
   /**
-   * Set entity index at which quadrature points are accessed. This can, e.g.,
-   * a cell index, a cell batch index, or a face batch index.
-   */
-  template <bool T = FERETT::use_two_level_crs>
-  typename std::enable_if_t<false == T, void> reinit(const unsigned int index)
-  {
-    data_offset = comm->get_shift(index);
-  }
-
-  /**
-   * Set cell and face_number at which quadrature points are accessed.
-   */
-  template <bool T = FERETT::use_two_level_crs>
-  typename std::enable_if_t<true == T, void>
-  reinit(const unsigned int cell_index, const unsigned int face_number)
-  {
-    data_offset = comm->get_shift(cell_index, face_number);
-  }
-
-  /**
    * Get the value at quadrature point @p q. The entity on which the values
    * are defined is set via `reinit()`.
    */
-  const value_type get_value(const unsigned int q) const
+  const value_type get_value(const unsigned int q,
+                             const unsigned int data_offset) const
   {
     Assert(data_offset != numbers::invalid_unsigned_int,
            ExcMessage("reinit() not called."));
@@ -777,12 +756,34 @@ public:
    * Get the gradients at quadrature point @p q. The entity on which the
    * gradients are defined is set via `reinit()`.
    */
-  const gradient_type get_gradient(const unsigned int q) const
+  const gradient_type get_gradient(const unsigned int q,
+                                   const unsigned int data_offset) const
   {
     Assert(data_offset != numbers::invalid_unsigned_int,
            ExcMessage("reinit() not called."));
     AssertIndexRange(data_offset + q, data.gradients.size());
     return data.gradients[data_offset + q];
+  }
+
+  /**
+   * Set entity index at which quadrature points are accessed. This can, e.g.,
+   * a cell index, a cell batch index, or a face batch index.
+   */
+  template <bool T = FERETT::use_two_level_crs>
+  typename std::enable_if_t<false == T, unsigned int>
+  get_shift(const unsigned int index) const
+  {
+    return comm->get_shift(index);
+  }
+
+  /**
+   * Set cell and face_number at which quadrature points are accessed.
+   */
+  template <bool T = FERETT::use_two_level_crs>
+  typename std::enable_if_t<true == T, unsigned int>
+  get_shift(const unsigned int cell_index, const unsigned int face_number) const
+  {
+    return comm->get_shift(cell_index, face_number);
   }
 
 private:
@@ -832,6 +833,78 @@ private:
    * Flags that indicate which ghost values are updated.
    */
   const VectorTools::EvaluationFlags::EvaluationFlags vt_flags;
+};
+
+
+template <int dim,
+          int n_components,
+          typename Number,
+          typename VectorizedArrayType,
+          bool is_face,
+          bool use_matrix_free_batches>
+class FERemoteEvaluation
+{
+  using FERETT =
+    typename internal::FERemoteEvaluationTypeTraits<is_face,
+                                                    use_matrix_free_batches>;
+
+public:
+  FERemoteEvaluation(
+    const FERemoteEvaluationCache<dim,
+                                  n_components,
+                                  Number,
+                                  VectorizedArrayType,
+                                  is_face,
+                                  use_matrix_free_batches> &cache)
+    : cache(cache)
+    , data_offset(numbers::invalid_unsigned_int){};
+
+  /**
+   * Get the value at quadrature point @p q. The entity on which the values
+   * are defined is set via `reinit()`.
+   */
+  const auto get_value(const unsigned int q) const
+  {
+    return cache.get_value(q, data_offset);
+  }
+
+  /**
+   * Get the gradients at quadrature point @p q. The entity on which the
+   * gradients are defined is set via `reinit()`.
+   */
+  const auto get_gradient(const unsigned int q) const
+  {
+    return cache.get_gradient(q, data_offset);
+  }
+
+
+  /**
+   * Set entity index at which quadrature points are accessed. This can, e.g.,
+   * a cell index, a cell batch index, or a face batch index.
+   */
+  template <bool T = FERETT::use_two_level_crs>
+  typename std::enable_if_t<false == T, void> reinit(const unsigned int index)
+  {
+    data_offset = cache.get_shift(index);
+  }
+
+  /**
+   * Set cell and face_number at which quadrature points are accessed.
+   */
+  template <bool T = FERETT::use_two_level_crs>
+  typename std::enable_if_t<true == T, void>
+  reinit(const unsigned int cell_index, const unsigned int face_number)
+  {
+    data_offset = cache.get_shift(cell_index, face_number);
+  }
+
+private:
+  const FERemoteEvaluationCache<dim,
+                                n_components,
+                                Number,
+                                VectorizedArrayType,
+                                is_face,
+                                use_matrix_free_batches> &cache;
 
   /**
    * Offset to data after last call of `reinit()`.

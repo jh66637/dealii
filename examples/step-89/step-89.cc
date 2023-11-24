@@ -60,19 +60,20 @@ namespace Step89
 
   // @sect3{Set alias for FERemoteEvaluation}
   //
-  // Define an alias for FERemoteEvaluation to be able to skip typing
+  // Define an alias for FERemoteEvaluationCache to be able to skip typing
   // template parameters that do not change within this tutorial.
   template <int n_components,
             int dim,
             typename Number,
             bool use_matrix_free_face_batches,
             typename VectorizedArrayType = VectorizedArray<Number>>
-  using FERemoteEval = FERemoteEvaluation<dim,
-                                          n_components,
-                                          Number,
-                                          VectorizedArrayType,
-                                          true,
-                                          use_matrix_free_face_batches>;
+  using FERemoteEvalCache =
+    FERemoteEvaluationCache<dim,
+                            n_components,
+                            Number,
+                            VectorizedArrayType,
+                            true,
+                            use_matrix_free_face_batches>;
 
   // @sect3{Initial conditions for vibrating membrane}
   //
@@ -215,8 +216,6 @@ namespace Step89
   template <typename Number>
   class CellwiseMaterialData
   {
-    using scalar = dealii::VectorizedArray<Number>;
-
   public:
     template <int dim>
     CellwiseMaterialData(
@@ -283,7 +282,7 @@ namespace Step89
       return density;
     }
 
-    AlignedVector<VectorizedArray<Number>> get_homogenous_speed_of_sound() const
+    VectorizedArray<Number> get_homogenous_speed_of_sound() const
     {
       Assert(homogenous, ExcMessage("Use get_speed_of_sound()"));
       return speed_of_sound_homogenous;
@@ -299,8 +298,8 @@ namespace Step89
     const bool homogenous;
 
     // Materials in the inhomogenous case.
-    AlignedVector<VectorizedArray<Number>> c;
-    AlignedVector<VectorizedArray<Number>> rho;
+    AlignedVector<VectorizedArray<Number>> speed_of_sound;
+    AlignedVector<VectorizedArray<Number>> density;
 
     // Materials in the homogenous case.
     VectorizedArray<Number> speed_of_sound_homogenous;
@@ -308,11 +307,11 @@ namespace Step89
   };
 
   // To be able to access the material data in every cell in a thread safe way
-  // @c MaterialEvaluation is used. Similar to @c FEEvaluation, every thread creates
-  // its own instance and thus, there are no race conditions.
-  // For in-homogenous materials, a @c reinit_cell() or @c reinit_face()
-  // function is used to set the correct material at the current cell batch. In
-  // the homogenous case the @c _reinit() functions don't have to reset the
+  // @c MaterialEvaluation is used. Similar to @c FEEvaluation, every thread
+  // creates its own instance and thus, there are no race conditions. For
+  // in-homogenous materials, a @c reinit_cell() or @c reinit_face() function is
+  // used to set the correct material at the current cell batch. In the
+  // homogenous case the @c _reinit() functions don't have to reset the
   // materials.
   template <int dim, typename Number>
   class MaterialEvaluation
@@ -367,7 +366,8 @@ namespace Step89
     }
 
     // Return the materials at the current cell batch.
-    std::pair<scalar, scalar> get_materials() const
+    std::pair<VectorizedArray<Number>, VectorizedArray<Number>>
+    get_materials() const
     {
       return std::make_pair(speed_of_sound, density);
     }
@@ -387,31 +387,29 @@ namespace Step89
     const CellwiseMaterialData<Number> &material_data;
 
     // Materials at current cell.
-    scalar speed_of_sound;
-    scalar density;
-  }
+    VectorizedArray<Number> speed_of_sound;
+    VectorizedArray<Number> density;
+  };
 
-  // TODO:
-  //  Similar to the MaterialHandler above we also need the materials
-  //  in the neighboring cells. We restrict ourself to phase jumps over
-  //  non-matching interfaces and in which it is not trivial to access
-  //  the correct values. Besides this, it is possible, that materials at the
-  //  neighboring cells change in every quadrature point.
-  //  Internally, this class makes use of FERemoteEvaluation objects.
-  //  Compared to the MaterialHandler above, there is no homogenous path
-  //  since in the homogenous case we can simply use MaterialHandler.
+  // Similar to the material handling above we also need the materials
+  // in the neighboring cells. We restrict ourself to phase jumps over
+  // non-matching interfaces and in which it is not trivial to access
+  // the correct values. Besides this, it is possible, that materials at the
+  // neighboring cells change in every quadrature point. This class holds
+  // @c FERemoteEvaluationCache objects with the cached densities and
+  // speeds of sound.
   template <int dim, typename Number, bool mortaring>
-  class RemoteMaterialHandler
+  class RemoteMaterialCache
   {
   public:
-    RemoteMaterialHandler(
+    RemoteMaterialCache(
       const FERemoteEvaluationCommunicator<dim, true, !mortaring>
                                &remote_communicator,
       const Triangulation<dim> &tria,
       const std::map<types::material_id, std::pair<double, double>>
         &material_id_map)
-      : phi_c(remote_communicator, tria)
-      , phi_rho(remote_communicator, tria)
+      : phi_c_cache(remote_communicator, tria)
+      , phi_rho_cache(remote_communicator, tria)
     {
       Assert(material_id_map.size() > 0,
              ExcMessage("No materials given to MaterialHandler"));
@@ -431,9 +429,37 @@ namespace Step89
       // Cache the remote values at all quadrature points. Since
       // the cellwise materials do not change during the simulation
       // calling @c gather_evaluate() once in the beginning is enough.
-      phi_c.gather_evaluate(c, EvaluationFlags::values);
-      phi_rho.gather_evaluate(rho, EvaluationFlags::values);
+      phi_c_cache.gather_evaluate(c, EvaluationFlags::values);
+      phi_rho_cache.gather_evaluate(rho, EvaluationFlags::values);
     }
+
+    const auto &get_speed_of_sound_cache() const
+    {
+      return phi_c_cache;
+    }
+
+    const auto &get_density_cache() const
+    {
+      return phi_rho_cache;
+    }
+
+  private:
+    // FERemoteEvaluation objects with cached values.
+    FERemoteEvalCache<1, dim, Number, !mortaring> phi_c_cache;
+    FERemoteEvalCache<1, dim, Number, !mortaring> phi_rho_cache;
+  };
+
+  
+  // To be able to access the remote material data in a thread safe way
+  // @c RemoteMaterialEvaluation is used (see MaterialEvaluation).  
+  template <int dim, typename Number, bool mortaring>
+  class RemoteMaterialEvaluation
+  {
+  public:
+    RemoteMaterialEvaluation(
+      const RemoteMaterialCache<dim, Number, mortaring> &cache)
+      : phi_c(cache.get_speed_of_sound_cache())
+      , phi_rho(cache.get_density_cache()){};
 
     // In case of point-to-point interpolation we need to call
     // the underlying reinit functions with face batch ids.
@@ -466,8 +492,20 @@ namespace Step89
 
   private:
     // FERemoteEvaluation objects with cached values.
-    FERemoteEval<1, dim, Number, !mortaring> phi_c;
-    FERemoteEval<1, dim, Number, !mortaring> phi_rho;
+    FERemoteEvaluation<dim,
+                       1,
+                       Number,
+                       VectorizedArray<Number>,
+                       true,
+                       !mortaring>
+      phi_c;
+    FERemoteEvaluation<dim,
+                       1,
+                       Number,
+                       VectorizedArray<Number>,
+                       true,
+                       !mortaring>
+      phi_rho;
   };
 
 
@@ -526,24 +564,25 @@ namespace Step89
     // constructor is used, the operator is setup for point-to-point
     // interpolation.
     AcousticOperator(
-      const MatrixFree<dim, Number>                      &matrix_free_in,
-      const std::set<types::boundary_id>                 &non_matching_face_ids,
-      std::shared_ptr<FERemoteEval<1, dim, Number, true>> pressure_r,
-      std::shared_ptr<FERemoteEval<dim, dim, Number, true>> velocity_r,
-      std::shared_ptr<CellwiseMaterialData<dim, Number>>    material_data,
-      std::shared_ptr<RemoteMaterialHandler<dim, Number, false>>
-        material_handler_remote)
+      const MatrixFree<dim, Number>      &matrix_free_in,
+      const std::set<types::boundary_id> &non_matching_face_ids,
+      std::shared_ptr<FERemoteEvalCache<1, dim, Number, true>> pressure_r_cache,
+      std::shared_ptr<FERemoteEvalCache<dim, dim, Number, true>>
+                                                    velocity_r_cache,
+      std::shared_ptr<CellwiseMaterialData<Number>> material_data,
+      std::shared_ptr<RemoteMaterialCache<dim, Number, false>>
+        material_remote_cache)
       : use_mortaring(false)
       , matrix_free(matrix_free_in)
       , remote_face_ids(non_matching_face_ids)
-      , pressure_r(pressure_r)
-      , velocity_r(velocity_r)
+      , pressure_r_cache(pressure_r_cache)
+      , velocity_r_cache(velocity_r_cache)
       , nm_mapping_info(nullptr)
-      , pressure_r_mortar(nullptr)
-      , velocity_r_mortar(nullptr)
+      , pressure_r_mortar_cache(nullptr)
+      , velocity_r_mortar_cache(nullptr)
       , material_data(material_data)
-      , material_handler_r(material_handler_remote)
-      , material_handler_r_mortar(nullptr)
+      , material_r_cache(material_remote_cache)
+      , material_r_mortar_cache(nullptr)
     {}
 
     // Constructor with all the needed ingredients for the operator. If this
@@ -552,22 +591,24 @@ namespace Step89
       const MatrixFree<dim, Number>      &matrix_free_in,
       const std::set<types::boundary_id> &non_matching_face_ids,
       std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>> nm_info,
-      std::shared_ptr<FERemoteEval<1, dim, Number, false>>        pressure_r,
-      std::shared_ptr<FERemoteEval<dim, dim, Number, false>>      velocity_r,
-      std::shared_ptr<CellwiseMaterialData<dim, Number>>          material_data,
-      std::shared_ptr<RemoteMaterialHandler<dim, Number, true>>
-        material_handler_remote)
+      std::shared_ptr<FERemoteEvalCache<1, dim, Number, false>>
+        pressure_r_cache,
+      std::shared_ptr<FERemoteEvalCache<dim, dim, Number, false>>
+                                                    velocity_r_cache,
+      std::shared_ptr<CellwiseMaterialData<Number>> material_data,
+      std::shared_ptr<RemoteMaterialCache<dim, Number, true>>
+        material_remote_cache)
       : use_mortaring(true)
       , matrix_free(matrix_free_in)
       , remote_face_ids(non_matching_face_ids)
-      , pressure_r(nullptr)
-      , velocity_r(nullptr)
+      , pressure_r_cache(nullptr)
+      , velocity_r_cache(nullptr)
       , nm_mapping_info(nm_info)
-      , pressure_r_mortar(pressure_r)
-      , velocity_r_mortar(velocity_r)
+      , pressure_r_mortar_cache(pressure_r_cache)
+      , velocity_r_mortar_cache(velocity_r_cache)
       , material_data(material_data)
-      , material_handler_r(nullptr)
-      , material_handler_r_mortar(material_handler_remote)
+      , material_r_cache(nullptr)
+      , material_r_mortar_cache(material_remote_cache)
     {}
 
     // Function to evaluate the acoustic operator.
@@ -580,8 +621,10 @@ namespace Step89
         {
           // Update the cached values in corresponding the FERemoteEvaluation
           // objects.
-          pressure_r_mortar->gather_evaluate(src, EvaluationFlags::values);
-          velocity_r_mortar->gather_evaluate(src, EvaluationFlags::values);
+          pressure_r_mortar_cache->gather_evaluate(src,
+                                                   EvaluationFlags::values);
+          velocity_r_mortar_cache->gather_evaluate(src,
+                                                   EvaluationFlags::values);
 
           // Perform matrix free loop and choose correct boundary face loop
           // to use Nitsche-type mortaring.
@@ -600,8 +643,8 @@ namespace Step89
         {
           // Update the cached values in corresponding the FERemoteEvaluation
           // objects.
-          pressure_r->gather_evaluate(src, EvaluationFlags::values);
-          velocity_r->gather_evaluate(src, EvaluationFlags::values);
+          pressure_r_cache->gather_evaluate(src, EvaluationFlags::values);
+          velocity_r_cache->gather_evaluate(src, EvaluationFlags::values);
 
           // Perform matrix free loop and choose correct boundary face loop
           // to use point-to-point interpolation.
@@ -729,9 +772,8 @@ namespace Step89
       ExternalFaceIntegratorVelocity &velocity_p,
       const std::pair<typename InternalFaceIntegratorPressure::value_type,
                       typename InternalFaceIntegratorPressure::value_type>
-                                                          &materials,
-      const RemoteMaterialHandler<dim, Number, mortaring> &material_handler_r)
-      const
+                                                             &materials,
+      const RemoteMaterialEvaluation<dim, Number, mortaring> &material_r) const
     {
       // The material at the current cell is constant.
       const auto [c, rho] = materials;
@@ -742,7 +784,7 @@ namespace Step89
         {
           // The material at the neighboring face might vary in every quadrature
           // point.
-          const auto [c_p, rho_p]  = material_handler_r.get_materials(q);
+          const auto [c_p, rho_p]  = material_r.get_materials(q);
           const auto tau_p         = 0.5 * rho_p * c_p;
           const auto gamma_p       = 0.5 / (rho_p * c_p);
           const auto tau_sum_inv   = 1.0 / (tau_m + tau_p);
@@ -840,11 +882,15 @@ namespace Step89
         matrix_free, true, 0, 0, 1);
 
       // Class that gives access to material at each cell
-      MaterialEvaluation material(matrix_free, *material_data);
+      MaterialEvaluation       material(matrix_free, *material_data);
+      RemoteMaterialEvaluation material_r(*material_r_cache);
 
       // Classes which return the correct BC values.
       BCEvalP pressure_bc(pressure_m);
       BCEvalU velocity_bc(velocity_m);
+
+      FERemoteEvaluation pressure_r(*pressure_r_cache);
+      FERemoteEvaluation velocity_r(*velocity_r_cache);
 
       for (unsigned int face = face_range.first; face < face_range.second;
            face++)
@@ -870,9 +916,8 @@ namespace Step89
               // For point-to-point interpolation we simply use the
               // corresponding FERemoteEvaluaton objects in combination with the
               // standard FEFaceEvaluation objects.
-              velocity_r->reinit(
-                face); // TODO: this is also not thread-safe right now
-              pressure_r->reinit(face);
+              velocity_r.reinit(face);
+              pressure_r.reinit(face);
 
               material.reinit_face(face);
 
@@ -884,21 +929,21 @@ namespace Step89
                   // compute.
                   evaluate_face_kernel<false>(pressure_m,
                                               velocity_m,
-                                              *pressure_r,
-                                              *velocity_r,
+                                              pressure_r,
+                                              velocity_r,
                                               material.get_materials());
                 }
               else
                 {
                   // If in-homogenous material is considered use the
                   // in-homogenous fluxes.
-                  material_handler_r->reinit_face(face);
+                  material_r.reinit_face(face);
                   evaluate_face_kernel_inhomogeneous(pressure_m,
                                                      velocity_m,
-                                                     *pressure_r,
-                                                     *velocity_r,
+                                                     pressure_r,
+                                                     velocity_r,
                                                      material.get_materials(),
-                                                     *material_handler_r);
+                                                     material_r);
                 }
             }
           else
@@ -939,7 +984,8 @@ namespace Step89
         matrix_free, true, 0, 0, 1);
 
       // Class that gives access to material at each cell
-      MaterialEvaluation material(matrix_free, *material_data);
+      MaterialEvaluation       material(matrix_free, *material_data);
+      RemoteMaterialEvaluation material_r_mortar(*material_r_mortar_cache);
 
       // Classes which return the correct BC values.
       BCEvalP pressure_bc(pressure_m);
@@ -958,6 +1004,9 @@ namespace Step89
         *nm_mapping_info, matrix_free.get_dof_handler().get_fe(), 0);
       FEPointEvaluation<dim, dim, dim, Number> velocity_m_mortar(
         *nm_mapping_info, matrix_free.get_dof_handler().get_fe(), 1);
+
+      FERemoteEvaluation pressure_r_mortar(*pressure_r_mortar_cache);
+      FERemoteEvaluation velocity_r_mortar(*velocity_r_mortar_cache);
 
       // Buffer on which FEPointEvaluation is working on.
       AlignedVector<Number> buffer(
@@ -980,8 +1029,8 @@ namespace Step89
                   const auto [cell, f] =
                     matrix_free.get_face_iterator(face, v, true);
 
-                  // TODO: we will be able to simplify this in a follow up PR once there is
-                  //  FEFacePointEvaluation. 
+                  // TODO: we will be able to simplify this in a follow up PR
+                  // once there is FEFacePointEvaluation.
                   velocity_m_mortar.reinit(cell->active_cell_index(), f);
                   pressure_m_mortar.reinit(cell->active_cell_index(), f);
 
@@ -989,8 +1038,8 @@ namespace Step89
                   velocity_m_mortar.evaluate(buffer, EvaluationFlags::values);
                   pressure_m_mortar.evaluate(buffer, EvaluationFlags::values);
 
-                  velocity_r_mortar->reinit(cell->active_cell_index(), f);
-                  pressure_r_mortar->reinit(cell->active_cell_index(), f);
+                  velocity_r_mortar.reinit(cell->active_cell_index(), f);
+                  pressure_r_mortar.reinit(cell->active_cell_index(), f);
 
                   material.reinit_face(face);
 
@@ -1006,8 +1055,8 @@ namespace Step89
                       // material.get_materials(v).
                       evaluate_face_kernel<false>(pressure_m_mortar,
                                                   velocity_m_mortar,
-                                                  *pressure_r_mortar,
-                                                  *velocity_r_mortar,
+                                                  pressure_r_mortar,
+                                                  velocity_r_mortar,
                                                   material.get_materials(v));
                     }
                   else
@@ -1018,15 +1067,15 @@ namespace Step89
                       // material that is defined at a certain cell in the cell
                       // batches. Hence we call @c
                       // material.get_materials(v).
-                      material_handler_r_mortar->reinit_face(
-                        cell->active_cell_index(), f);
-                      evaluate_face_kernel_inhomogeneous(
-                        pressure_m_mortar,
-                        velocity_m_mortar,
-                        *pressure_r_mortar,
-                        *velocity_r_mortar,
-                        material.get_materials(v),
-                        *material_handler_r_mortar);
+                      material_r_mortar.reinit_face(cell->active_cell_index(),
+                                                    f);
+                      evaluate_face_kernel_inhomogeneous(pressure_m_mortar,
+                                                         velocity_m_mortar,
+                                                         pressure_r_mortar,
+                                                         velocity_r_mortar,
+                                                         material.get_materials(
+                                                           v),
+                                                         material_r_mortar);
                     }
 
                   // @c integrate(sum_into_values=false) zeroes out the
@@ -1040,8 +1089,9 @@ namespace Step89
                   // avoid that the vales written by
                   // velocity_m_mortar.integrate() are zeroed out.
                   // TODO: should integrate only zero out the values it writes
-                  //  to or are there cases in which all values have to be zeroed out?
-                  //  If not the whole buffer should be zeroed out: Follow up PR.
+                  //  to or are there cases in which all values have to be
+                  //  zeroed out? If not the whole buffer should be zeroed out:
+                  //  Follow up PR.
                   pressure_m_mortar.integrate(buffer,
                                               EvaluationFlags::values,
                                               /*sum_into_values=*/true);
@@ -1081,23 +1131,25 @@ namespace Step89
     // FERemoteEvaluation objects are strored as shared pointers. This way,
     // they can also be used for other operators without caching the values
     // multiple times.
-    const std::set<types::boundary_id>                          remote_face_ids;
-    const std::shared_ptr<FERemoteEval<1, dim, Number, true>>   pressure_r;
-    const std::shared_ptr<FERemoteEval<dim, dim, Number, true>> velocity_r;
+    const std::set<types::boundary_id> remote_face_ids;
+    const std::shared_ptr<FERemoteEvalCache<1, dim, Number, true>>
+      pressure_r_cache;
+    const std::shared_ptr<FERemoteEvalCache<dim, dim, Number, true>>
+      velocity_r_cache;
     const std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>>
       nm_mapping_info;
-    const std::shared_ptr<FERemoteEval<1, dim, Number, false>>
-      pressure_r_mortar;
-    const std::shared_ptr<FERemoteEval<dim, dim, Number, false>>
-      velocity_r_mortar;
+    const std::shared_ptr<FERemoteEvalCache<1, dim, Number, false>>
+      pressure_r_mortar_cache;
+    const std::shared_ptr<FERemoteEvalCache<dim, dim, Number, false>>
+      velocity_r_mortar_cache;
 
     // CellwiseMaterialData is stored as shared pointer with the same
     // argumentation.
     const std::shared_ptr<CellwiseMaterialData<Number>> material_data;
-    const std::shared_ptr<RemoteMaterialHandler<dim, Number, false>>
-      material_handler_r;
-    const std::shared_ptr<RemoteMaterialHandler<dim, Number, true>>
-      material_handler_r_mortar;
+    const std::shared_ptr<RemoteMaterialCache<dim, Number, false>>
+      material_r_cache;
+    const std::shared_ptr<RemoteMaterialCache<dim, Number, true>>
+      material_r_mortar_cache;
   };
 
   //@sect3{Inverse mass operator}
@@ -1498,13 +1550,13 @@ namespace Step89
     // Set up FERemoteEvaluation object that accesses the pressure
     // at remote faces.
     const auto pressure_r =
-      std::make_shared<FERemoteEval<1, dim, Number, true>>(
+      std::make_shared<FERemoteEvalCache<1, dim, Number, true>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 0);
 
     // Set up FERemoteEvaluation object that accesses the velocity
     // at remote faces.
     const auto velocity_r =
-      std::make_shared<FERemoteEval<dim, dim, Number, true>>(
+      std::make_shared<FERemoteEvalCache<dim, dim, Number, true>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 1);
 
     // Set up cellwise material data.
@@ -1513,12 +1565,12 @@ namespace Step89
 
     // If we have an inhomogenous problem, we have to setup the
     // material handler that accesses the materials at remote faces.
-    std::shared_ptr<RemoteMaterialHandler<dim, Number, false>>
-      material_handler_r = nullptr;
+    std::shared_ptr<RemoteMaterialCache<dim, Number, false>> material_r_cache =
+      nullptr;
     if (!material_data->is_homogenous())
       {
-        material_handler_r =
-          std::make_shared<RemoteMaterialHandler<dim, Number, false>>(
+        material_r_cache =
+          std::make_shared<RemoteMaterialCache<dim, Number, false>>(
             remote_communicator, tria, materials);
       }
 
@@ -1534,7 +1586,7 @@ namespace Step89
                                                       pressure_r,
                                                       velocity_r,
                                                       material_data,
-                                                      material_handler_r);
+                                                      material_r_cache);
 
     // Compute the the maximum speed of sound, needed for the computation of
     // the time-step size.
@@ -1761,13 +1813,13 @@ namespace Step89
     // Setup FERemoteEvaluation object that accesses the pressure
     // at remote faces.
     const auto pressure_r =
-      std::make_shared<FERemoteEval<1, dim, Number, false>>(
+      std::make_shared<FERemoteEvalCache<1, dim, Number, false>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 0);
 
     // Setup FERemoteEvaluation object that accesses the velocity
     // at remote faces.
     const auto velocity_r =
-      std::make_shared<FERemoteEval<dim, dim, Number, false>>(
+      std::make_shared<FERemoteEvalCache<dim, dim, Number, false>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 1);
 
     // Setup cellwise material data.
@@ -1776,12 +1828,12 @@ namespace Step89
 
     // If we have an inhomogenous problem, we have to setup the
     // material handler that accesses the materials at remote faces.
-    std::shared_ptr<RemoteMaterialHandler<dim, Number, true>>
-      material_handler_r = nullptr;
-    if (!material_handler->is_homogenous())
+    std::shared_ptr<RemoteMaterialCache<dim, Number, true>> material_r_cache =
+      nullptr;
+    if (!material_data->is_homogenous())
       {
-        material_handler_r =
-          std::make_shared<RemoteMaterialHandler<dim, Number, true>>(
+        material_r_cache =
+          std::make_shared<RemoteMaterialCache<dim, Number, true>>(
             remote_communicator, tria, materials);
       }
 
@@ -1798,7 +1850,7 @@ namespace Step89
                                                       pressure_r,
                                                       velocity_r,
                                                       material_data,
-                                                      material_handler_r);
+                                                      material_r_cache);
 
     // Compute the the maximum speed of sound, needed for the computation of
     // the time-step size.
