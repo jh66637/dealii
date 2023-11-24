@@ -206,39 +206,34 @@ namespace Step89
     }
   } // namespace HelperFunctions
 
-  //@sect3{Material handlers}
+  //@sect3{Material access}
   //
-  // We are considering homogenous and inhomogenous fluids. Therefore,
-  // we need the infromation which material is defined at which cell.
-  // This class helps to access the correct values. In case of homogenous
-  // fluids, the class simply returns the given material parameters.
-  // For in-homogenous materials, a @c reinit_cell() function is used to set the
-  // correct state of an internal @c FEEvaluation object which is used to read
-  // the material parameters at a cell batch. Similarely @c reinit_face() can
-  // be used if the face batch number is known instead of the cell batch number.
-  template <int dim, typename Number>
-  class MaterialHandler
+  // This class stores the information if the fluid is homogenous
+  // as well as the material properties at every cell.
+  // This class helps to access the correct values without accessing
+  // a large vector of materials in the homogenous case.
+  template <typename Number>
+  class CellwiseMaterialData
   {
-    using scalar = typename FEEvaluation<dim, -1, 0, 1, Number>::value_type;
+    using scalar = dealii::VectorizedArray<Number>;
 
   public:
-    MaterialHandler(
+    template <int dim>
+    CellwiseMaterialData(
       const MatrixFree<dim, Number, VectorizedArray<Number>> &matrix_free,
       const std::map<types::material_id, std::pair<double, double>>
         &material_id_map)
       // If the map is of size 1, the material is constant in every cell.
       : homogenous(material_id_map.size() == 1)
-      , phi(matrix_free)
-      , phi_face(matrix_free, true)
     {
       Assert(material_id_map.size() > 0,
-             ExcMessage("No materials given to MaterialHandler"));
+             ExcMessage("No materials given to CellwiseMaterialData"));
 
       if (homogenous)
         {
           // In the homogenous case we know the materials in the whole domain.
-          speed_of_sound = material_id_map.begin()->second.first;
-          density        = material_id_map.begin()->second.second;
+          speed_of_sound_homogenous = material_id_map.begin()->second.first;
+          density_homogenous        = material_id_map.begin()->second.second;
         }
       else
         {
@@ -249,13 +244,13 @@ namespace Step89
           const auto n_cell_batches =
             matrix_free.n_cell_batches() + matrix_free.n_ghost_cell_batches();
 
-          rho.resize(n_cell_batches);
-          c.resize(n_cell_batches);
+          speed_of_sound.resize(n_cell_batches);
+          density.resize(n_cell_batches);
 
           for (unsigned int cell = 0; cell < n_cell_batches; ++cell)
             {
-              c[cell]   = 1.;
-              rho[cell] = 1.;
+              speed_of_sound[cell] = 1.;
+              density[cell]        = 1.;
               for (unsigned int v = 0;
                    v < matrix_free.n_active_entries_per_cell_batch(cell);
                    ++v)
@@ -263,8 +258,9 @@ namespace Step89
                   const auto material_id =
                     matrix_free.get_cell_iterator(cell, v)->material_id();
 
-                  c[cell][v]   = material_id_map.at(material_id).first;
-                  rho[cell][v] = material_id_map.at(material_id).second;
+                  speed_of_sound[cell][v] =
+                    material_id_map.at(material_id).first;
+                  density[cell][v] = material_id_map.at(material_id).second;
                 }
             }
         }
@@ -275,16 +271,84 @@ namespace Step89
       return homogenous;
     }
 
+    AlignedVector<VectorizedArray<Number>> get_speed_of_sound() const
+    {
+      Assert(!homogenous, ExcMessage("Use get_homogenous_speed_of_sound()"));
+      return speed_of_sound;
+    }
+
+    AlignedVector<VectorizedArray<Number>> get_density() const
+    {
+      Assert(!homogenous, ExcMessage("Use get_homogenous_density()"));
+      return density;
+    }
+
+    AlignedVector<VectorizedArray<Number>> get_homogenous_speed_of_sound() const
+    {
+      Assert(homogenous, ExcMessage("Use get_speed_of_sound()"));
+      return speed_of_sound_homogenous;
+    }
+
+    VectorizedArray<Number> get_homogenous_density() const
+    {
+      Assert(homogenous, ExcMessage("Use get_density()"));
+      return density_homogenous;
+    }
+
+  private:
+    const bool homogenous;
+
+    // Materials in the inhomogenous case.
+    AlignedVector<VectorizedArray<Number>> c;
+    AlignedVector<VectorizedArray<Number>> rho;
+
+    // Materials in the homogenous case.
+    VectorizedArray<Number> speed_of_sound_homogenous;
+    VectorizedArray<Number> density_homogenous;
+  };
+
+  // To be able to access the material data in every cell in a thread safe way
+  // @c MaterialEvaluation is used. Similar to @c FEEvaluation, every thread creates
+  // its own instance and thus, there are no race conditions.
+  // For in-homogenous materials, a @c reinit_cell() or @c reinit_face()
+  // function is used to set the correct material at the current cell batch. In
+  // the homogenous case the @c _reinit() functions don't have to reset the
+  // materials.
+  template <int dim, typename Number>
+  class MaterialEvaluation
+  {
+  public:
+    MaterialEvaluation(
+      const MatrixFree<dim, Number, VectorizedArray<Number>> &matrix_free,
+      const CellwiseMaterialData<Number>                     &material_data)
+      : phi(matrix_free)
+      , phi_face(matrix_free, true)
+      , material_data(material_data)
+    {
+      if (material_data.is_homogenous())
+        {
+          // Set the material that is used in every cell.
+          speed_of_sound = material_data.get_homogenous_speed_of_sound();
+          density        = material_data.get_homogenous_density();
+        }
+    }
+
+    bool is_homogenous() const
+    {
+      return material_data.is_homogenous();
+    }
+
     // Update the cell data, given a cell batch index.
     void reinit_cell(const unsigned int cell)
     {
       // In the homogenous case we do not have to reset the cell data.
-      if (!homogenous)
+      if (!material_data.is_homogenous())
         {
           // Reinit the FEEvaluation object and set the cell data.
           phi.reinit(cell);
-          speed_of_sound = phi.read_cell_data(c);
-          density        = phi.read_cell_data(rho);
+          speed_of_sound =
+            phi.read_cell_data(material_data.get_speed_of_sound());
+          density = phi.read_cell_data(material_data.get_density());
         }
     }
 
@@ -292,12 +356,13 @@ namespace Step89
     void reinit_face(const unsigned int face)
     {
       // In the homogenous case we do not have to reset the cell data.
-      if (!homogenous)
+      if (!material_data.is_homogenous())
         {
           // Reinit the FEFaceEvaluation object and set the cell data.
           phi_face.reinit(face);
-          speed_of_sound = phi_face.read_cell_data(c);
-          density        = phi_face.read_cell_data(rho);
+          speed_of_sound =
+            phi_face.read_cell_data(material_data.get_speed_of_sound());
+          density = phi_face.read_cell_data(material_data.get_density());
         }
     }
 
@@ -314,28 +379,27 @@ namespace Step89
     }
 
   private:
-    const bool homogenous;
-
     // Members needed for the inhomogenous case.
     FEEvaluation<dim, -1, 0, 1, Number>     phi;
     FEFaceEvaluation<dim, -1, 0, 1, Number> phi_face;
-    AlignedVector<VectorizedArray<Number>>  c;
-    AlignedVector<VectorizedArray<Number>>  rho;
+
+    // Material defined at every cell.
+    const CellwiseMaterialData<Number> &material_data;
 
     // Materials at current cell.
     scalar speed_of_sound;
     scalar density;
-  };
+  }
 
-
-  // Similar to the MaterialHandler above we also need the materials
-  // in the neighboring cells. We restrict ourself to phase jumps over
-  // non-matching interfaces and in which it is not trivial to access
-  // the correct values. Besides this, it is possible, that materials at the
-  // neighboring cells change in every quadrature point.
-  // Internally, this class makes use of FERemoteEvaluation objects.
-  // Compared to the MaterialHandler above, there is no homogenous path
-  // since in the homogenous case we can simply use MaterialHandler.
+  // TODO:
+  //  Similar to the MaterialHandler above we also need the materials
+  //  in the neighboring cells. We restrict ourself to phase jumps over
+  //  non-matching interfaces and in which it is not trivial to access
+  //  the correct values. Besides this, it is possible, that materials at the
+  //  neighboring cells change in every quadrature point.
+  //  Internally, this class makes use of FERemoteEvaluation objects.
+  //  Compared to the MaterialHandler above, there is no homogenous path
+  //  since in the homogenous case we can simply use MaterialHandler.
   template <int dim, typename Number, bool mortaring>
   class RemoteMaterialHandler
   {
@@ -466,7 +530,7 @@ namespace Step89
       const std::set<types::boundary_id>                 &non_matching_face_ids,
       std::shared_ptr<FERemoteEval<1, dim, Number, true>> pressure_r,
       std::shared_ptr<FERemoteEval<dim, dim, Number, true>> velocity_r,
-      std::shared_ptr<MaterialHandler<dim, Number>>         material_handler,
+      std::shared_ptr<CellwiseMaterialData<dim, Number>>    material_data,
       std::shared_ptr<RemoteMaterialHandler<dim, Number, false>>
         material_handler_remote)
       : use_mortaring(false)
@@ -477,7 +541,7 @@ namespace Step89
       , nm_mapping_info(nullptr)
       , pressure_r_mortar(nullptr)
       , velocity_r_mortar(nullptr)
-      , material_handler(material_handler)
+      , material_data(material_data)
       , material_handler_r(material_handler_remote)
       , material_handler_r_mortar(nullptr)
     {}
@@ -490,7 +554,7 @@ namespace Step89
       std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>> nm_info,
       std::shared_ptr<FERemoteEval<1, dim, Number, false>>        pressure_r,
       std::shared_ptr<FERemoteEval<dim, dim, Number, false>>      velocity_r,
-      std::shared_ptr<MaterialHandler<dim, Number>> material_handler,
+      std::shared_ptr<CellwiseMaterialData<dim, Number>>          material_data,
       std::shared_ptr<RemoteMaterialHandler<dim, Number, true>>
         material_handler_remote)
       : use_mortaring(true)
@@ -501,7 +565,7 @@ namespace Step89
       , nm_mapping_info(nm_info)
       , pressure_r_mortar(pressure_r)
       , velocity_r_mortar(velocity_r)
-      , material_handler(material_handler)
+      , material_data(material_data)
       , material_handler_r(nullptr)
       , material_handler_r_mortar(material_handler_remote)
     {}
@@ -566,6 +630,9 @@ namespace Step89
       FEEvaluation<dim, -1, 0, 1, Number>   pressure(matrix_free, 0, 0, 0);
       FEEvaluation<dim, -1, 0, dim, Number> velocity(matrix_free, 0, 0, 1);
 
+      // Class that gives access to material at each cell
+      MaterialEvaluation material(matrix_free, *material_data);
+
       for (unsigned int cell = cell_range.first; cell < cell_range.second;
            ++cell)
         {
@@ -576,10 +643,10 @@ namespace Step89
           velocity.gather_evaluate(src, EvaluationFlags::gradients);
 
           // Get the materials at the corresponding cell. Since we
-          // introduced the MaterialHandler we can write the code
+          // introduced @c MaterialEvaluation we can write the code
           // independent if the material is homogenous or inhomogenous.
-          material_handler->reinit_cell(cell);
-          const auto [c, rho] = material_handler->get_materials();
+          material.reinit_cell(cell);
+          const auto [c, rho] = material.get_materials();
 
           for (unsigned int q = 0; q < pressure.n_q_points; ++q)
             {
@@ -629,8 +696,7 @@ namespace Step89
           const auto up = velocity_p.get_value(q);
 
           // Compute homogenous local Lax-Friedrichs fluxes and submit the
-          // corrsponding
-          // values to the integrators.
+          // corrsponding values to the integrators.
           const auto flux_momentum =
             0.5 * (pm + pp) + 0.5 * tau * (um - up) * n;
           velocity_m.submit_value(1.0 / rho * (flux_momentum - pm) * n, q);
@@ -656,17 +722,16 @@ namespace Step89
       typename ExternalFaceIntegratorVelocity,
       bool mortaring> // TODO: I would remove this template argument (also from
                       // RemoteMaterialHandler)
-                      void evaluate_face_kernel_inhomogeneous(
-                        InternalFaceIntegratorPressure &pressure_m,
-                        InternalFaceIntegratorVelocity &velocity_m,
-                        ExternalFaceIntegratorPressure &pressure_p,
-                        ExternalFaceIntegratorVelocity &velocity_p,
-                        const std::pair<
-                          typename InternalFaceIntegratorPressure::value_type,
-                          typename InternalFaceIntegratorPressure::value_type>
-                          &materials,
-                        const RemoteMaterialHandler<dim, Number, mortaring>
-                          &material_handler_r) const
+    void evaluate_face_kernel_inhomogeneous(
+      InternalFaceIntegratorPressure &pressure_m,
+      InternalFaceIntegratorVelocity &velocity_m,
+      ExternalFaceIntegratorPressure &pressure_p,
+      ExternalFaceIntegratorVelocity &velocity_p,
+      const std::pair<typename InternalFaceIntegratorPressure::value_type,
+                      typename InternalFaceIntegratorPressure::value_type>
+                                                          &materials,
+      const RemoteMaterialHandler<dim, Number, mortaring> &material_handler_r)
+      const
     {
       // The material at the current cell is constant.
       const auto [c, rho] = materials;
@@ -724,6 +789,9 @@ namespace Step89
       FEFaceEvaluation<dim, -1, 0, dim, Number> velocity_p(
         matrix_free, false, 0, 0, 1);
 
+      // Class that gives access to material at each cell
+      MaterialEvaluation material(matrix_free, *material_data);
+
       for (unsigned int face = face_range.first; face < face_range.second;
            face++)
         {
@@ -739,15 +807,12 @@ namespace Step89
           velocity_m.gather_evaluate(src, EvaluationFlags::values);
           velocity_p.gather_evaluate(src, EvaluationFlags::values);
 
-          material_handler->reinit_face(
-            face); // TODO: currently this is not thread-safe. We might need
-          // to split up material_handler: 1) vectors of
-          // materials vs. 2) current state of each tread.
+          material.reinit_face(face);
           evaluate_face_kernel<true>(pressure_m,
                                      velocity_m,
                                      pressure_p,
                                      velocity_p,
-                                     material_handler->get_materials());
+                                     material.get_materials());
 
           pressure_m.integrate_scatter(EvaluationFlags::values, dst);
           pressure_p.integrate_scatter(EvaluationFlags::values, dst);
@@ -773,6 +838,9 @@ namespace Step89
         matrix_free, true, 0, 0, 0);
       FEFaceEvaluation<dim, -1, 0, dim, Number> velocity_m(
         matrix_free, true, 0, 0, 1);
+
+      // Class that gives access to material at each cell
+      MaterialEvaluation material(matrix_free, *material_data);
 
       // Classes which return the correct BC values.
       BCEvalP pressure_bc(pressure_m);
@@ -806,33 +874,31 @@ namespace Step89
                 face); // TODO: this is also not thread-safe right now
               pressure_r->reinit(face);
 
-              material_handler->reinit_face(face);
+              material.reinit_face(face);
 
-              if (material_handler->is_homogenous())
+              if (material.is_homogenous())
                 {
                   // If homogenous material is considered do not use the
                   // in-homogenous fluxes. While it would be possible
                   // to use the in-homogenous fluxes they are more expensive to
                   // compute.
-                  evaluate_face_kernel<false>(
-                    pressure_m,
-                    velocity_m,
-                    *pressure_r,
-                    *velocity_r,
-                    material_handler->get_materials());
+                  evaluate_face_kernel<false>(pressure_m,
+                                              velocity_m,
+                                              *pressure_r,
+                                              *velocity_r,
+                                              material.get_materials());
                 }
               else
                 {
                   // If in-homogenous material is considered use the
                   // in-homogenous fluxes.
                   material_handler_r->reinit_face(face);
-                  evaluate_face_kernel_inhomogeneous(
-                    pressure_m,
-                    velocity_m,
-                    *pressure_r,
-                    *velocity_r,
-                    material_handler->get_materials(),
-                    *material_handler_r);
+                  evaluate_face_kernel_inhomogeneous(pressure_m,
+                                                     velocity_m,
+                                                     *pressure_r,
+                                                     *velocity_r,
+                                                     material.get_materials(),
+                                                     *material_handler_r);
                 }
             }
           else
@@ -842,12 +908,12 @@ namespace Step89
               // kernel as for inner faces we pass the boundary condition
               // objects to the function that evaluates the kernel. As mentioned
               // above, there is no neighbor to consider in the kernel.
-              material_handler->reinit_face(face);
+              material.reinit_face(face);
               evaluate_face_kernel<false>(pressure_m,
                                           velocity_m,
                                           pressure_bc,
                                           velocity_bc,
-                                          material_handler->get_materials());
+                                          material.get_materials());
             }
 
           pressure_m.integrate_scatter(EvaluationFlags::values, dst);
@@ -871,6 +937,9 @@ namespace Step89
         matrix_free, true, 0, 0, 0);
       FEFaceEvaluation<dim, -1, 0, dim, Number> velocity_m(
         matrix_free, true, 0, 0, 1);
+
+      // Class that gives access to material at each cell
+      MaterialEvaluation material(matrix_free, *material_data);
 
       // Classes which return the correct BC values.
       BCEvalP pressure_bc(pressure_m);
@@ -911,8 +980,8 @@ namespace Step89
                   const auto [cell, f] =
                     matrix_free.get_face_iterator(face, v, true);
 
-                  // TODO: we will be able to simplify this once there is
-                  //  FEFacePointEvaluation
+                  // TODO: we will be able to simplify this in a follow up PR once there is
+                  //  FEFacePointEvaluation. 
                   velocity_m_mortar.reinit(cell->active_cell_index(), f);
                   pressure_m_mortar.reinit(cell->active_cell_index(), f);
 
@@ -923,9 +992,9 @@ namespace Step89
                   velocity_r_mortar->reinit(cell->active_cell_index(), f);
                   pressure_r_mortar->reinit(cell->active_cell_index(), f);
 
-                  material_handler->reinit_face(face);
+                  material.reinit_face(face);
 
-                  if (material_handler->is_homogenous())
+                  if (material.is_homogenous())
                     {
                       // If homogenous material is considered do not use the
                       // in-homogenous fluxes. While it would be possible
@@ -934,13 +1003,12 @@ namespace Step89
                       // compute. Since we are using mortaring, we have to
                       // access the material that is defined at a certain cell
                       // in the cell batches. Hence we call @c
-                      // material_handler->get_materials(v).
-                      evaluate_face_kernel<false>(
-                        pressure_m_mortar,
-                        velocity_m_mortar,
-                        *pressure_r_mortar,
-                        *velocity_r_mortar,
-                        material_handler->get_materials(v));
+                      // material.get_materials(v).
+                      evaluate_face_kernel<false>(pressure_m_mortar,
+                                                  velocity_m_mortar,
+                                                  *pressure_r_mortar,
+                                                  *velocity_r_mortar,
+                                                  material.get_materials(v));
                     }
                   else
                     {
@@ -949,7 +1017,7 @@ namespace Step89
                       // have to access the
                       // material that is defined at a certain cell in the cell
                       // batches. Hence we call @c
-                      // material_handler->get_materials(v).
+                      // material.get_materials(v).
                       material_handler_r_mortar->reinit_face(
                         cell->active_cell_index(), f);
                       evaluate_face_kernel_inhomogeneous(
@@ -957,7 +1025,7 @@ namespace Step89
                         velocity_m_mortar,
                         *pressure_r_mortar,
                         *velocity_r_mortar,
-                        material_handler->get_materials(v),
+                        material.get_materials(v),
                         *material_handler_r_mortar);
                     }
 
@@ -972,7 +1040,8 @@ namespace Step89
                   // avoid that the vales written by
                   // velocity_m_mortar.integrate() are zeroed out.
                   // TODO: should integrate only zero out the values it writes
-                  //  to? If yes, follow up PR.
+                  //  to or are there cases in which all values have to be zeroed out?
+                  //  If not the whole buffer should be zeroed out: Follow up PR.
                   pressure_m_mortar.integrate(buffer,
                                               EvaluationFlags::values,
                                               /*sum_into_values=*/true);
@@ -991,12 +1060,12 @@ namespace Step89
               pressure_m.gather_evaluate(src, EvaluationFlags::values);
               velocity_m.gather_evaluate(src, EvaluationFlags::values);
 
-              material_handler->reinit_face(face);
+              material.reinit_face(face);
               evaluate_face_kernel<false>(pressure_m,
                                           velocity_m,
                                           pressure_bc,
                                           velocity_bc,
-                                          material_handler->get_materials());
+                                          material.get_materials());
 
               pressure_m.integrate_scatter(EvaluationFlags::values, dst);
               velocity_m.integrate_scatter(EvaluationFlags::values, dst);
@@ -1022,9 +1091,9 @@ namespace Step89
     const std::shared_ptr<FERemoteEval<dim, dim, Number, false>>
       velocity_r_mortar;
 
-    // Material handers are stored as shared pointers with the same
+    // CellwiseMaterialData is stored as shared pointer with the same
     // argumentation.
-    const std::shared_ptr<MaterialHandler<dim, Number>> material_handler;
+    const std::shared_ptr<CellwiseMaterialData<Number>> material_data;
     const std::shared_ptr<RemoteMaterialHandler<dim, Number, false>>
       material_handler_r;
     const std::shared_ptr<RemoteMaterialHandler<dim, Number, true>>
@@ -1438,15 +1507,15 @@ namespace Step89
       std::make_shared<FERemoteEval<dim, dim, Number, true>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 1);
 
-    // Set up material handler.
-    const auto material_handler =
-      std::make_shared<MaterialHandler<dim, Number>>(matrix_free, materials);
+    // Set up cellwise material data.
+    const auto material_data =
+      std::make_shared<CellwiseMaterialData<Number>>(matrix_free, materials);
 
     // If we have an inhomogenous problem, we have to setup the
     // material handler that accesses the materials at remote faces.
     std::shared_ptr<RemoteMaterialHandler<dim, Number, false>>
       material_handler_r = nullptr;
-    if (!material_handler->is_homogenous())
+    if (!material_data->is_homogenous())
       {
         material_handler_r =
           std::make_shared<RemoteMaterialHandler<dim, Number, false>>(
@@ -1464,7 +1533,7 @@ namespace Step89
                                                       non_matching_faces,
                                                       pressure_r,
                                                       velocity_r,
-                                                      material_handler,
+                                                      material_data,
                                                       material_handler_r);
 
     // Compute the the maximum speed of sound, needed for the computation of
@@ -1701,9 +1770,9 @@ namespace Step89
       std::make_shared<FERemoteEval<dim, dim, Number, false>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 1);
 
-    // Setup material handler.
-    const auto material_handler =
-      std::make_shared<MaterialHandler<dim, Number>>(matrix_free, materials);
+    // Setup cellwise material data.
+    const auto material_data =
+      std::make_shared<CellwiseMaterialData<Number>>(matrix_free, materials);
 
     // If we have an inhomogenous problem, we have to setup the
     // material handler that accesses the materials at remote faces.
@@ -1728,7 +1797,7 @@ namespace Step89
                                                       nm_mapping_info,
                                                       pressure_r,
                                                       velocity_r,
-                                                      material_handler,
+                                                      material_data,
                                                       material_handler_r);
 
     // Compute the the maximum speed of sound, needed for the computation of
@@ -1737,7 +1806,8 @@ namespace Step89
     for (const auto &mat : materials)
       speed_of_sound_max = std::max(speed_of_sound_max, mat.second.first);
 
-    ConditionalOStream pcout(std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
+    ConditionalOStream pcout(
+      std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
 
     // Setup time integrator.
     RungeKutta2<dim, Number> time_integrator(inverse_mass_operator,
@@ -1766,35 +1836,37 @@ int main(int argc, char *argv[])
 
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
   std::cout.precision(5);
-  ConditionalOStream pcout(std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
-  
+  ConditionalOStream pcout(std::cout,
+                           (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) ==
+                            0));
+
   const unsigned int refinements = 2;
   const unsigned int degree      = 5;
 
   // Construct non-matching triangulation and fill non-matching boundary IDs.
   parallel::distributed::Triangulation<dim> tria(MPI_COMM_WORLD);
 
-  pcout<<"Create non-matching grid..."<<std::endl;
+  pcout << "Create non-matching grid..." << std::endl;
 
-  std::set<types::boundary_id>              non_matching_faces;
+  std::set<types::boundary_id> non_matching_faces;
   Step89::build_non_matching_triangulation(tria,
                                            non_matching_faces,
                                            refinements);
 
-  pcout<<" - Refinement level: "<<refinements<<std::endl;
-  pcout<<" - Number of cells: "<<tria.n_cells()<<std::endl;
-  
+  pcout << " - Refinement level: " << refinements << std::endl;
+  pcout << " - Number of cells: " << tria.n_cells() << std::endl;
+
   // Setup MatrixFree.
 
-  pcout<<"Create DoFHandler..."<<std::endl;
+  pcout << "Create DoFHandler..." << std::endl;
   DoFHandler<dim> dof_handler(tria);
   dof_handler.distribute_dofs(FESystem<dim>(FE_DGQ<dim>(degree), dim + 1));
-  pcout<<" - Number of DoFs: "<<dof_handler.n_dofs()<<std::endl;
+  pcout << " - Number of DoFs: " << dof_handler.n_dofs() << std::endl;
 
   AffineConstraints<Number> constraints;
   constraints.close();
 
-  pcout<<"Setup MatrixFree..."<<std::endl;
+  pcout << "Setup MatrixFree..." << std::endl;
   typename MatrixFree<dim, Number>::AdditionalData data;
   data.mapping_update_flags = update_gradients | update_values;
   data.mapping_update_flags_inner_faces =
@@ -1807,7 +1879,7 @@ int main(int argc, char *argv[])
     MappingQ1<dim>(), dof_handler, constraints, QGauss<dim>(degree + 1), data);
 
 
-  pcout<<"Run vibrating membrane testcase..."<<std::endl;
+  pcout << "Run vibrating membrane testcase..." << std::endl;
   // Vibrating membrane testcase:
   //
   // Homogenous pressure DBCs are applied for simplicity. Therefore,
@@ -1818,29 +1890,29 @@ int main(int argc, char *argv[])
   const auto initial_solution_membrane =
     Step89::InitialConditionVibratingMembrane<dim>(modes);
 
-  pcout<<" - Point-to-point interpolation: "<<std::endl;
+  pcout << " - Point-to-point interpolation: " << std::endl;
   // Run vibrating membrane testcase using point-to-point interpolation:
   Step89::run_with_point_to_point_interpolation(
     matrix_free,
     non_matching_faces,
     homogenous_material,
-    2.0*initial_solution_membrane.get_period_duration(
-      homogenous_material.begin()->second.first),
+    2.0 * initial_solution_membrane.get_period_duration(
+            homogenous_material.begin()->second.first),
     initial_solution_membrane,
     "vm-p2p");
 
-  pcout<<" - Nitsche-type mortaring: "<<std::endl;
+  pcout << " - Nitsche-type mortaring: " << std::endl;
   // Run vibrating membrane testcase using Nitsche-type mortaring:
   Step89::run_with_nitsche_type_mortaring(
     matrix_free,
     non_matching_faces,
     homogenous_material,
-    2.0*initial_solution_membrane.get_period_duration(
-      homogenous_material.begin()->second.first),
+    2.0 * initial_solution_membrane.get_period_duration(
+            homogenous_material.begin()->second.first),
     initial_solution_membrane,
     "vm-nitsche");
 
-  pcout<<"Run testcase with inhomogenous material..."<<std::endl;
+  pcout << "Run testcase with inhomogenous material..." << std::endl;
   // In-homogenous material testcase:
   //
   // Run simple testcase with in-homogenous material and Nitsche-type mortaring:
