@@ -510,7 +510,7 @@ namespace Step89
     template <typename VectorType>
     void evaluate(VectorType &dst, const VectorType &src) const
     {
-      // PM: we should consider to merge pressure_r_mortar and pressure_r
+      // TODO: we should consider to merge pressure_r_mortar and pressure_r
 
       if (use_mortaring)
         {
@@ -600,7 +600,7 @@ namespace Step89
     // as well. This is because we iterate over each side of the non-matching
     // face seperately (similar to a cell
     // centric loop).
-    template <bool weight_neighbor, // PM: I would make this an argument
+    template <bool weight_neighbor, // TODO: I would make this an argument
               typename InternalFaceIntegratorPressure,
               typename InternalFaceIntegratorVelocity,
               typename ExternalFaceIntegratorPressure,
@@ -646,7 +646,7 @@ namespace Step89
 
     // This function evaluates the fluxes at faces between cells with differnet
     // materials. This can only happen over non-matching interfaces. Therefore,
-    // it is clear that weight_neighbor=false. PM: to make this function
+    // it is clear that weight_neighbor=false. TODO: to make this function
     // symmetrical, I would make weight_neighbor an argument and assert that the
     // value is false.
     template <
@@ -654,7 +654,7 @@ namespace Step89
       typename InternalFaceIntegratorVelocity,
       typename ExternalFaceIntegratorPressure,
       typename ExternalFaceIntegratorVelocity,
-      bool mortaring> // PM: I would remove this template argument (also from
+      bool mortaring> // TODO: I would remove this template argument (also from
                       // RemoteMaterialHandler)
                       void evaluate_face_kernel_inhomogeneous(
                         InternalFaceIntegratorPressure &pressure_m,
@@ -740,7 +740,7 @@ namespace Step89
           velocity_p.gather_evaluate(src, EvaluationFlags::values);
 
           material_handler->reinit_face(
-            face); // PM: currently this is not thread-safe. We might need
+            face); // TODO: currently this is not thread-safe. We might need
           // to split up material_handler: 1) vectors of
           // materials vs. 2) current state of each tread.
           evaluate_face_kernel<true>(pressure_m,
@@ -803,7 +803,7 @@ namespace Step89
               // corresponding FERemoteEvaluaton objects in combination with the
               // standard FEFaceEvaluation objects.
               velocity_r->reinit(
-                face); // PM: this is also not thread-safe right now
+                face); // TODO: this is also not thread-safe right now
               pressure_r->reinit(face);
 
               material_handler->reinit_face(face);
@@ -882,10 +882,9 @@ namespace Step89
       // and FEFaceEvaluation but have to consider each face individually and
       // make use of @c FEPointEvaluation to evaluate the integrals in the
       // arbitrarely distributed quadrature points.
-      // PM: we might want to consider to make these to class variables
-      // using ThreadLocalStorage. The setup of FEPointEvaluation is more
-      // expensive than that of FEEvaluation (since MatrixFree stores
-      // all the precomputed data).
+      // TODO: The setup of FEPointEvaluation is more
+      //  expensive than that of FEEvaluation (since MatrixFree stores
+      //  all the precomputed data). Should we use ThreadLocalStorage?
       FEPointEvaluation<1, dim, dim, Number> pressure_m_mortar(
         *nm_mapping_info, matrix_free.get_dof_handler().get_fe(), 0);
       FEPointEvaluation<dim, dim, dim, Number> velocity_m_mortar(
@@ -912,8 +911,8 @@ namespace Step89
                   const auto [cell, f] =
                     matrix_free.get_face_iterator(face, v, true);
 
-                  // PM: we will be able to simplify this once there is
-                  // FEFacePointEvaluation
+                  // TODO: we will be able to simplify this once there is
+                  //  FEFacePointEvaluation
                   velocity_m_mortar.reinit(cell->active_cell_index(), f);
                   pressure_m_mortar.reinit(cell->active_cell_index(), f);
 
@@ -973,7 +972,7 @@ namespace Step89
                   // avoid that the vales written by
                   // velocity_m_mortar.integrate() are zeroed out.
                   // TODO: should integrate only zero out the values it writes
-                  // to?
+                  //  to? If yes, follow up PR.
                   pressure_m_mortar.integrate(buffer,
                                               EvaluationFlags::values,
                                               /*sum_into_values=*/true);
@@ -1282,9 +1281,6 @@ namespace Step89
   // also the corresponding remote evaluators are setup. Eventually, the
   // operators are handed to the time integrator that runs the simulation.
   //
-  // TODO: check if everything is correct(that means if the instable
-  // result is expected in this configuration)!
-  //
   template <int dim, typename Number>
   void run_with_point_to_point_interpolation(
     const MatrixFree<dim, Number>      &matrix_free,
@@ -1325,7 +1321,7 @@ namespace Step89
     // i.e. boundary faces. Internally this information is needed to correctly
     // access values over multiple communication objects.
     // TODO: This interface is motivated by the initialization of
-    // NonMatchingMapping info. We could change this (MARCO/PETER).
+    //  NonMatchingMapping info. We could change this (MARCO/PETER).
     std::vector<Quadrature<dim>> global_quadrature_vector(
       matrix_free.n_boundary_face_batches());
 
@@ -1408,8 +1404,8 @@ namespace Step89
                          "Quadrature for given face already provided."));
 
                 // TODO: Only the information of the quadrature size is needed
-                // (MARCO/PETER)
-                global_quadrature_vector[bface] = // PM: this is odd!? Why do
+                //  (MARCO/PETER)
+                global_quadrature_vector[bface] = // TODO: this is odd!? Why do
                                                   // wee need empty quadratures?
                   Quadrature<dim>(phi.get_quadrature_points().size());
               }
@@ -1609,15 +1605,14 @@ namespace Step89
         //  convert_to_distributed_compute_point_locations_internal.
         //  We have to adapt
         //  convert_to_distributed_compute_point_locations_internal to be
-        //  able to retrieve relevant information. PM: agree.
+        //  able to retrieve relevant information. This will be done in a
+        //  follow up PR.
 
         // TODO: NonMatchingMappingInfo should be able to work with
         //  Quadrature<dim> instead <dim-1>. Currently we are constructing
         //  dim-1 from dim and inside MappingInfo it is converted back.
-        // PM: There will be something like this; see
-        // commit
-        // https://github.com/bergbauer/dealii/commit/accc2c71dc1b986d400b5f562ec92af50c637517
-        // in https://github.com/bergbauer/dealii/commits/mapping_info_fcl.
+        //  As far as we know Max is working on that. If not: follow up
+        //  PR.
 
         // 3) Fill global quadrature vector.
         for (unsigned int i = 0; i < intersection_requests.size(); ++i)
