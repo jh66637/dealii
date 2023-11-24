@@ -10,23 +10,30 @@ The pressure field using point-to-point interpolation is depicted on the right.
 <table align="center" class="doxtable">
   <tr>
     <td>
-        @image html step-89-vm-cut.png "" width=30%
+        @image html step-89-vm-cut.png "" width=60%
     </td>
     <td>
-        @image html step-89-vm-p2p.png "" width=30%
+        @image html step-89-vm-p2p.png "" width=60%
     </td>
   </tr>
 </table>
 
 Besides this, the results for the pressure and the velicty in $y$ direction
-are plotted along the horizontal line that spans from (0,0.5) to (1,0.5).
-Along this line and at $t=2T$, both results are expected to be zero. 
+are plotted along the horizontal line that spans from (0,0.52) to (1,0.52).
 
-@image html step-89-p.png "" width=30%
-@image html step-89-uy.png "" width=30%
+<table align="center" class="doxtable">
+  <tr>
+    <td>
+        @image html step-89-p.svg "" width=60%
+    </td>
+    <td>
+        @image html step-89-uy.svg "" width=60%
+    </td>
+  </tr>
+</table>
 
 Clearly, the results differ. While the results for Nitsche-type mortaring
-are close to the analytical solution, we can see aliasing errors
+are close to the expected solution, we can see aliasing errors
 for the point-to-point interpolation. For different mesh configurations and/or
 longer run times, the aliasing effects of the point-to-point simulation
 accumulate and the simulation gets instable. To keep the tutorial short we have
@@ -51,9 +58,9 @@ Using the same element size in the whole domain, we can compute a reference resu
 The displayed reference result is obtained by choosing the same subdivision level
 for both subdomains, i.e. @c subdiv_right = 3. In this particular example the
 reference result uses $62208$ DoFs, while the non-matching result uses $34560$ DoFs.
-The pressure result is plotted along the horizontal line that spans from (0,0.5) to (1,0.5).
+The pressure result is plotted along the horizontal line that spans from (0,0.52) to (1,0.52).
 
-@image html step-89-inhomogenous-ref.png "" width=30%
+@image html step-89-inhomogenous-ref.svg "" width=30%
 
 The results, obtained with the non-matching discretization is in good result with
 the reference result.
