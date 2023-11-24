@@ -572,8 +572,8 @@ private:
    */
   template <typename T1, std::size_t n_lanes>
   void copy_data_entries(VectorizedArray<T1, n_lanes> &dst,
-                 const unsigned int            v,
-                 const T1                     &src) const
+                         const unsigned int            v,
+                         const T1                     &src) const
   {
     AssertIndexRange(v, n_lanes);
 
@@ -585,8 +585,8 @@ private:
    */
   template <typename T1, int rank_, std::size_t n_lanes, int dim_>
   void copy_data_entries(Tensor<rank_, dim_, VectorizedArray<T1, n_lanes>> &dst,
-                 const unsigned int                                 v,
-                 const Tensor<rank_, dim_, T1>                     &src) const
+                         const unsigned int                                 v,
+                         const Tensor<rank_, dim_, T1> &src) const
   {
     AssertIndexRange(v, n_lanes);
 

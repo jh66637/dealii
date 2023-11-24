@@ -38,7 +38,7 @@ for the point-to-point interpolation. For different mesh configurations and/or
 longer run times, the aliasing effects of the point-to-point simulation
 accumulate and the simulation gets instable. To keep the tutorial short we have
 chosen one mesh that can be used for all examples. For a configuration that yields
-instable results for a wide range of polynomial degrees, see @cite heinz2023high. 
+instable results for a wide range of polynomial degrees, see @cite heinz2023high.
 
 <h3>Wave propagation through inhomogenous fluid</h3>
 
@@ -52,7 +52,7 @@ at $t=0.3$ is depicted below.
 
 As expected, we can easily see that the wave length in the right domain is roughly
 three times times the wave length in the left domain. Hence, the wave can be
-resolved with a coarser discretization. 
+resolved with a coarser discretization.
 
 Using the same element size in the whole domain, we can compute a reference result.
 The displayed reference result is obtained by choosing the same subdivision level
@@ -79,9 +79,9 @@ for overlapping triangulations. For this the intersection requests are of dimens
 The cells which are intersected with the intersection requests are of dimension $dim$. For the
 simple case for non-conforming interfaces it would be sufficient to compute the intersections
 between $dim-1$ and $dim-1$ entities. Furthermore, the lambda could be adapted, such that cells are
-only marked if they are connected to a certain boundary ID (in this case, e.g. 99) instead of 
+only marked if they are connected to a certain boundary ID (in this case, e.g. 99) instead of
 marking every cell that is <i>not</i> connected to the opposite boundary ID (in this case, e.g. 98),
 which can generally significantly reduce the setup costs.
 
 Note that for inhomogenous material this procedure is questionable, since it is not clear which
-material is present in the overlapping part of the mesh. 
+material is present in the overlapping part of the mesh.
