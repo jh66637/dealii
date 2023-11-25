@@ -32,167 +32,21 @@ DEAL_II_NAMESPACE_OPEN
 
 namespace internal
 {
-  /**
-   * Type traits for supported FEEvaluationTypes. Different FEEvaluationTypes
-   * need different communication objects and different access to data at
-   * quadrature points. Each specialization defines its CommunicationObjectType
-   * and whether a two level CRS structure is needed to access the data by the
-   * memeber `cell_face_pairs`. The same type with a different number of
-   * components can be obtained with FEEvaluationTypeComponents.
-   */
-  template <bool is_face, bool use_matrix_free_batches>
-  struct FERemoteEvaluationTypeTraits
-  {};
-
-
-
-  /**
-   * Specialization for FEEvaluation.
-   */
-  template <>
-  struct FERemoteEvaluationTypeTraits<false, true>
-  {
-    static const bool use_two_level_crs = false;
-
-    template <int dim>
-    using CommunicationObjectType =
-      std::pair<std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>>,
-                std::vector<std::pair<unsigned int, unsigned int>>>;
-
-    template <int dim,
-              int n_components,
-              typename Number,
-              typename VectorizedArrayType = VectorizedArray<Number>>
-    using value_type =
-      typename FEEvaluationAccess<dim,
-                                  n_components,
-                                  Number,
-                                  false,
-                                  VectorizedArrayType>::value_type;
-
-    template <int dim,
-              int n_components,
-              typename Number,
-              typename VectorizedArrayType = VectorizedArray<Number>>
-    using gradient_type =
-      typename FEEvaluationAccess<dim,
-                                  n_components,
-                                  Number,
-                                  false,
-                                  VectorizedArrayType>::gradient_type;
-  };
-
-
-
-  /**
-   * Specialization for FEFaceEvaluation.
-   */
-  template <>
-  struct FERemoteEvaluationTypeTraits<true, true>
-  {
-    static const bool use_two_level_crs = false;
-
-    template <int dim>
-    using CommunicationObjectType =
-      std::pair<std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>>,
-                std::vector<std::pair<unsigned int, unsigned int>>>;
-
-    template <int dim,
-              int n_components,
-              typename Number,
-              typename VectorizedArrayType = VectorizedArray<Number>>
-    using value_type =
-      typename FEEvaluationAccess<dim,
-                                  n_components,
-                                  Number,
-                                  true,
-                                  VectorizedArrayType>::value_type;
-
-    template <int dim,
-              int n_components,
-              typename Number,
-              typename VectorizedArrayType = VectorizedArray<Number>>
-    using gradient_type =
-      typename FEEvaluationAccess<dim,
-                                  n_components,
-                                  Number,
-                                  true,
-                                  VectorizedArrayType>::gradient_type;
-  };
-
-
-
-  /**
-   * Specialization for FEPointEvaluation.
-   */
-  template <>
-  struct FERemoteEvaluationTypeTraits<false, false>
-  {
-    static const bool use_two_level_crs = false;
-
-    template <int dim>
-    using CommunicationObjectType =
-      std::pair<std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>>,
-                std::vector<typename Triangulation<dim>::cell_iterator>>;
-
-    template <int dim, int n_components, typename Number, typename VectorizedArrayType /*only needed to access value types the same way*/>
-    using value_type = typename internal::FEPointEvaluation::
-      EvaluatorTypeTraits<dim, n_components, Number>::value_type;
-
-    template <int dim, int n_components, typename Number, typename VectorizedArrayType /*only needed to access value types the same way*/>
-    using gradient_type = typename internal::FEPointEvaluation::
-      EvaluatorTypeTraits<dim, n_components, Number>::gradient_type;
-  };
-
-
-
-  /**
-   * Specialization for FEPointEvaluation for faces.
-   */
-  template <>
-  struct FERemoteEvaluationTypeTraits<true, false>
-  {
-    static const bool use_two_level_crs = true;
-
-    template <int dim>
-    using CommunicationObjectType = std::pair<
-      std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>>,
-      std::vector<
-        std::pair<typename Triangulation<dim>::cell_iterator, unsigned int>>>;
-
-    template <int dim, int n_components, typename Number, typename VectorizedArrayType /*only needed to access value types the same way*/>
-    using value_type = typename internal::FEPointEvaluation::
-      EvaluatorTypeTraits<dim, n_components, Number>::value_type;
-
-    template <int dim, int n_components, typename Number, typename VectorizedArrayType /*only needed to access value types the same way*/>
-    using gradient_type = typename internal::FEPointEvaluation::
-      EvaluatorTypeTraits<dim, n_components, Number>::gradient_type;
-  };
-
-
 
   /**
    * A class that stores values and/or gradients at quadrature points
    * corresponding to a FEEvaluationType (FEEvaluation, FEFaceEvaluation,
    * FEPointEvaluation).
    */
-  template <int dim,
-            int n_components,
-            typename Number,
-            typename VectorizedArrayType,
-            bool is_face,
-            bool use_matrix_free_batches>
+  template <int dim, int n_components, typename value_type_>
   struct FERemoteEvaluationData
   {
-    using FERETT =
-      FERemoteEvaluationTypeTraits<is_face, use_matrix_free_batches>;
+    using value_type = typename internal::FEPointEvaluation::
+      EvaluatorTypeTraits<dim, n_components, value_type_>::value_type;
 
+    using gradient_type = typename internal::FEPointEvaluation::
+      EvaluatorTypeTraits<dim, n_components, value_type_>::gradient_type;
 
-    // TODO: get from type traits
-    using value_type = typename FERETT::
-      template value_type<dim, n_components, Number, VectorizedArrayType>;
-    using gradient_type = typename FERETT::
-      template gradient_type<dim, n_components, Number, VectorizedArrayType>;
 
     /**
      * Values at quadrature points.
@@ -666,31 +520,9 @@ private:
  * FERemoteEvaluationCommunicator knows the type. However,
  * FERemoteEvaluationCommunicator is independent of @p n_components.
  */
-template <int dim,
-          int n_components,
-          typename Number,
-          typename VectorizedArrayType,
-          bool is_face,
-          bool use_matrix_free_batches>
+template <int dim, int n_components, typename value_type>
 class FERemoteEvaluationCache
 {
-  using FERETT =
-    typename internal::FERemoteEvaluationTypeTraits<is_face,
-                                                    use_matrix_free_batches>;
-
-  // TODO: we could get rid of is_face, use_matrix_free_batches if we can
-  // determin
-  // the value_type and gradient type in a different manner!
-  using FERemoteEvaluationDataType =
-    typename internal::FERemoteEvaluationData<dim,
-                                              n_components,
-                                              Number,
-                                              VectorizedArrayType,
-                                              is_face,
-                                              use_matrix_free_batches>;
-  using value_type    = typename FERemoteEvaluationDataType::value_type;
-  using gradient_type = typename FERemoteEvaluationDataType::gradient_type;
-
 public:
   /**
    * The constructor needs a corresponding FERemoteEvaluationCommunicator
@@ -754,8 +586,8 @@ public:
    * Get the value at quadrature point @p q. The entity on which the values
    * are defined is set via `reinit()`.
    */
-  const value_type get_value(const unsigned int q,
-                             const unsigned int data_offset) const
+  const auto get_value(const unsigned int q,
+                       const unsigned int data_offset) const
   {
     Assert(data_offset != numbers::invalid_unsigned_int,
            ExcMessage("reinit() not called."));
@@ -767,8 +599,8 @@ public:
    * Get the gradients at quadrature point @p q. The entity on which the
    * gradients are defined is set via `reinit()`.
    */
-  const gradient_type get_gradient(const unsigned int q,
-                                   const unsigned int data_offset) const
+  const auto get_gradient(const unsigned int q,
+                          const unsigned int data_offset) const
   {
     Assert(data_offset != numbers::invalid_unsigned_int,
            ExcMessage("reinit() not called."));
@@ -780,9 +612,7 @@ public:
    * Set entity index at which quadrature points are accessed. This can, e.g.,
    * a cell index, a cell batch index, or a face batch index.
    */
-  template <bool T = FERETT::use_two_level_crs>
-  typename std::enable_if_t<false == T, unsigned int>
-  get_shift(const unsigned int index) const
+  unsigned int get_shift(const unsigned int index) const
   {
     return comm->get_shift(index);
   }
@@ -790,9 +620,8 @@ public:
   /**
    * Set cell and face_number at which quadrature points are accessed.
    */
-  template <bool T = FERETT::use_two_level_crs>
-  typename std::enable_if_t<true == T, unsigned int>
-  get_shift(const unsigned int cell_index, const unsigned int face_number) const
+  unsigned int get_shift(const unsigned int cell_index,
+                         const unsigned int face_number) const
   {
     return comm->get_shift(cell_index, face_number);
   }
@@ -817,7 +646,7 @@ private:
   /**
    * Data that is accessed by `get_value()` and `get_gradient()`.
    */
-  FERemoteEvaluationDataType data;
+  internal::FERemoteEvaluationData<dim, n_components, value_type> data;
 
   /**
    * Underlying communicator which handles update of the ghost values and
@@ -847,26 +676,12 @@ private:
 };
 
 
-template <int dim,
-          int n_components,
-          typename Number,
-          typename VectorizedArrayType,
-          bool is_face,
-          bool use_matrix_free_batches>
+template <int dim, int n_components, typename value_type>
 class FERemoteEvaluation
 {
-  using FERETT =
-    typename internal::FERemoteEvaluationTypeTraits<is_face,
-                                                    use_matrix_free_batches>;
-
 public:
   FERemoteEvaluation(
-    const FERemoteEvaluationCache<dim,
-                                  n_components,
-                                  Number,
-                                  VectorizedArrayType,
-                                  is_face,
-                                  use_matrix_free_batches> &cache)
+    const FERemoteEvaluationCache<dim, n_components, value_type> &cache)
     : cache(cache)
     , data_offset(numbers::invalid_unsigned_int){};
 
@@ -893,8 +708,7 @@ public:
    * Set entity index at which quadrature points are accessed. This can, e.g.,
    * a cell index, a cell batch index, or a face batch index.
    */
-  template <bool T = FERETT::use_two_level_crs>
-  typename std::enable_if_t<false == T, void> reinit(const unsigned int index)
+  void reinit(const unsigned int index)
   {
     data_offset = cache.get_shift(index);
   }
@@ -902,20 +716,13 @@ public:
   /**
    * Set cell and face_number at which quadrature points are accessed.
    */
-  template <bool T = FERETT::use_two_level_crs>
-  typename std::enable_if_t<true == T, void>
-  reinit(const unsigned int cell_index, const unsigned int face_number)
+  void reinit(const unsigned int cell_index, const unsigned int face_number)
   {
     data_offset = cache.get_shift(cell_index, face_number);
   }
 
 private:
-  const FERemoteEvaluationCache<dim,
-                                n_components,
-                                Number,
-                                VectorizedArrayType,
-                                is_face,
-                                use_matrix_free_batches> &cache;
+  const FERemoteEvaluationCache<dim, n_components, value_type> &cache;
 
   /**
    * Offset to data after last call of `reinit()`.

@@ -62,18 +62,8 @@ namespace Step89
   //
   // Define an alias for FERemoteEvaluationCache to be able to skip typing
   // template parameters that do not change within this tutorial.
-  template <int n_components,
-            int dim,
-            typename Number,
-            bool use_matrix_free_face_batches,
-            typename VectorizedArrayType = VectorizedArray<Number>>
-  using FERemoteEvalCache =
-    FERemoteEvaluationCache<dim,
-                            n_components,
-                            Number,
-                            VectorizedArrayType,
-                            true,
-                            use_matrix_free_face_batches>;
+  template <int n_components, int dim, typename Number>
+  using FERemoteEvalCache = FERemoteEvaluationCache<dim, n_components, Number>;
 
   // @sect3{Initial conditions for vibrating membrane}
   //
@@ -398,7 +388,7 @@ namespace Step89
   // neighboring cells change in every quadrature point. This class holds
   // @c FERemoteEvaluationCache objects with the cached densities and
   // speeds of sound.
-  template <int dim, typename Number, bool mortaring>
+  template <int dim, typename value_type, typename Number = double>
   class RemoteMaterialCache
   {
   public:
@@ -444,27 +434,24 @@ namespace Step89
 
   private:
     // FERemoteEvaluation objects with cached values.
-    FERemoteEvalCache<1, dim, Number, !mortaring> phi_c_cache;
-    FERemoteEvalCache<1, dim, Number, !mortaring> phi_rho_cache;
+    FERemoteEvalCache<1, dim, value_type> phi_c_cache;
+    FERemoteEvalCache<1, dim, value_type> phi_rho_cache;
   };
 
 
   // To be able to access the remote material data in a thread safe way
   // @c RemoteMaterialEvaluation is used (see MaterialEvaluation).
-  template <int dim, typename Number, bool mortaring>
+  template <int dim, typename value_type>
   class RemoteMaterialEvaluation
   {
   public:
-    RemoteMaterialEvaluation(
-      const RemoteMaterialCache<dim, Number, mortaring> &cache)
+    RemoteMaterialEvaluation(const RemoteMaterialCache<dim, value_type> &cache)
       : phi_c(cache.get_speed_of_sound_cache())
       , phi_rho(cache.get_density_cache()){};
 
     // In case of point-to-point interpolation we need to call
     // the underlying reinit functions with face batch ids.
-    template <bool M = mortaring>
-    typename std::enable_if_t<false == M, void>
-    reinit_face(const unsigned int face)
+    void reinit_face(const unsigned int face)
     {
       phi_c.reinit(face);
       phi_rho.reinit(face);
@@ -472,9 +459,7 @@ namespace Step89
 
     // In case of mortaring we need to call the underlying reinit
     // functions with the cell index and face number.
-    template <bool M = mortaring>
-    typename std::enable_if_t<true == M, void>
-    reinit_face(const unsigned int cell, const unsigned int face)
+    void reinit_face(const unsigned int cell, const unsigned int face)
     {
       phi_c.reinit(cell, face);
       phi_rho.reinit(cell, face);
@@ -491,20 +476,8 @@ namespace Step89
 
   private:
     // FERemoteEvaluation objects with cached values.
-    FERemoteEvaluation<dim,
-                       1,
-                       Number,
-                       VectorizedArray<Number>,
-                       true,
-                       !mortaring>
-      phi_c;
-    FERemoteEvaluation<dim,
-                       1,
-                       Number,
-                       VectorizedArray<Number>,
-                       true,
-                       !mortaring>
-      phi_rho;
+    FERemoteEvaluation<dim, 1, value_type> phi_c;
+    FERemoteEvaluation<dim, 1, value_type> phi_rho;
   };
 
 
@@ -565,11 +538,12 @@ namespace Step89
     AcousticOperator(
       const MatrixFree<dim, Number>      &matrix_free_in,
       const std::set<types::boundary_id> &non_matching_face_ids,
-      std::shared_ptr<FERemoteEvalCache<1, dim, Number, true>> pressure_r_cache,
-      std::shared_ptr<FERemoteEvalCache<dim, dim, Number, true>>
+      std::shared_ptr<FERemoteEvalCache<1, dim, VectorizedArray<Number>>>
+        pressure_r_cache,
+      std::shared_ptr<FERemoteEvalCache<dim, dim, VectorizedArray<Number>>>
                                                     velocity_r_cache,
       std::shared_ptr<CellwiseMaterialData<Number>> material_data,
-      std::shared_ptr<RemoteMaterialCache<dim, Number, false>>
+      std::shared_ptr<RemoteMaterialCache<dim, VectorizedArray<Number>>>
         material_remote_cache)
       : use_mortaring(false)
       , matrix_free(matrix_free_in)
@@ -590,13 +564,10 @@ namespace Step89
       const MatrixFree<dim, Number>      &matrix_free_in,
       const std::set<types::boundary_id> &non_matching_face_ids,
       std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>> nm_info,
-      std::shared_ptr<FERemoteEvalCache<1, dim, Number, false>>
-        pressure_r_cache,
-      std::shared_ptr<FERemoteEvalCache<dim, dim, Number, false>>
-                                                    velocity_r_cache,
-      std::shared_ptr<CellwiseMaterialData<Number>> material_data,
-      std::shared_ptr<RemoteMaterialCache<dim, Number, true>>
-        material_remote_cache)
+      std::shared_ptr<FERemoteEvalCache<1, dim, Number>>   pressure_r_cache,
+      std::shared_ptr<FERemoteEvalCache<dim, dim, Number>> velocity_r_cache,
+      std::shared_ptr<CellwiseMaterialData<Number>>        material_data,
+      std::shared_ptr<RemoteMaterialCache<dim, Number>> material_remote_cache)
       : use_mortaring(true)
       , matrix_free(matrix_free_in)
       , remote_face_ids(non_matching_face_ids)
@@ -614,7 +585,8 @@ namespace Step89
     template <typename VectorType>
     void evaluate(VectorType &dst, const VectorType &src) const
     {
-      // TODO:!!!!!!!!!! we should consider to merge pressure_r_mortar and pressure_r
+      // TODO:!!!!!!!!!! we should consider to merge pressure_r_mortar and
+      // pressure_r
 
       if (use_mortaring)
         {
@@ -709,7 +681,8 @@ namespace Step89
     // as well. This is because we iterate over each side of the non-matching
     // face seperately (similar to a cell
     // centric loop).
-    template <bool weight_neighbor, // TODO:!!!!!!!!!! I would make this an argument
+    template <bool weight_neighbor, // TODO:!!!!!!!!!! I would make this an
+                                    // argument
               typename InternalFaceIntegratorPressure,
               typename InternalFaceIntegratorVelocity,
               typename ExternalFaceIntegratorPressure,
@@ -754,16 +727,14 @@ namespace Step89
 
     // This function evaluates the fluxes at faces between cells with differnet
     // materials. This can only happen over non-matching interfaces. Therefore,
-    // it is clear that weight_neighbor=false. TODO:!!!!!!!!!! to make this function
-    // symmetrical, I would make weight_neighbor an argument and assert that the
-    // value is false.
-    template <
-      typename InternalFaceIntegratorPressure,
-      typename InternalFaceIntegratorVelocity,
-      typename ExternalFaceIntegratorPressure,
-      typename ExternalFaceIntegratorVelocity,
-      bool mortaring> // TODO:!!!!!!!!!! I would remove this template argument (also from
-                      // RemoteMaterialHandler)
+    // it is clear that weight_neighbor=false. TODO:!!!!!!!!!! to make this
+    // function symmetrical, I would make weight_neighbor an argument and assert
+    // that the value is false.
+    template <typename InternalFaceIntegratorPressure,
+              typename InternalFaceIntegratorVelocity,
+              typename ExternalFaceIntegratorPressure,
+              typename ExternalFaceIntegratorVelocity,
+              typename value_type>
     void evaluate_face_kernel_inhomogeneous(
       InternalFaceIntegratorPressure &pressure_m,
       InternalFaceIntegratorVelocity &velocity_m,
@@ -771,8 +742,8 @@ namespace Step89
       ExternalFaceIntegratorVelocity &velocity_p,
       const std::pair<typename InternalFaceIntegratorPressure::value_type,
                       typename InternalFaceIntegratorPressure::value_type>
-                                                             &materials,
-      const RemoteMaterialEvaluation<dim, Number, mortaring> &material_r) const
+                                                      &materials,
+      const RemoteMaterialEvaluation<dim, value_type> &material_r) const
     {
       // The material at the current cell is constant.
       const auto [c, rho] = materials;
@@ -1131,23 +1102,23 @@ namespace Step89
     // they can also be used for other operators without caching the values
     // multiple times.
     const std::set<types::boundary_id> remote_face_ids;
-    const std::shared_ptr<FERemoteEvalCache<1, dim, Number, true>>
+    const std::shared_ptr<FERemoteEvalCache<1, dim, VectorizedArray<Number>>>
       pressure_r_cache;
-    const std::shared_ptr<FERemoteEvalCache<dim, dim, Number, true>>
+    const std::shared_ptr<FERemoteEvalCache<dim, dim, VectorizedArray<Number>>>
       velocity_r_cache;
     const std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>>
       nm_mapping_info;
-    const std::shared_ptr<FERemoteEvalCache<1, dim, Number, false>>
+    const std::shared_ptr<FERemoteEvalCache<1, dim, Number>>
       pressure_r_mortar_cache;
-    const std::shared_ptr<FERemoteEvalCache<dim, dim, Number, false>>
+    const std::shared_ptr<FERemoteEvalCache<dim, dim, Number>>
       velocity_r_mortar_cache;
 
     // CellwiseMaterialData is stored as shared pointer with the same
     // argumentation.
     const std::shared_ptr<CellwiseMaterialData<Number>> material_data;
-    const std::shared_ptr<RemoteMaterialCache<dim, Number, false>>
+    const std::shared_ptr<RemoteMaterialCache<dim, VectorizedArray<Number>>>
       material_r_cache;
-    const std::shared_ptr<RemoteMaterialCache<dim, Number, true>>
+    const std::shared_ptr<RemoteMaterialCache<dim, Number>>
       material_r_mortar_cache;
   };
 
@@ -1523,10 +1494,12 @@ namespace Step89
                        ExcMessage(
                          "Quadrature for given face already provided."));
 
-                // TODO:!!!!!!!!!! Only the information of the quadrature size is needed
+                // TODO:!!!!!!!!!! Only the information of the quadrature size
+                // is needed
                 //  (MARCO/PETER)
-                global_quadrature_vector[bface] = // TODO:!!!!!!!!!! this is odd!? Why do
-                                                  // wee need empty quadratures?
+                global_quadrature_vector[bface] = // TODO:!!!!!!!!!! this is
+                                                  // odd!? Why do wee need empty
+                                                  // quadratures?
                   Quadrature<dim>(phi.get_quadrature_points().size());
               }
           }
@@ -1552,13 +1525,13 @@ namespace Step89
     // Set up FERemoteEvaluation object that accesses the pressure
     // at remote faces.
     const auto pressure_r =
-      std::make_shared<FERemoteEvalCache<1, dim, Number, true>>(
+      std::make_shared<FERemoteEvalCache<1, dim, VectorizedArray<Number>>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 0);
 
     // Set up FERemoteEvaluation object that accesses the velocity
     // at remote faces.
     const auto velocity_r =
-      std::make_shared<FERemoteEvalCache<dim, dim, Number, true>>(
+      std::make_shared<FERemoteEvalCache<dim, dim, VectorizedArray<Number>>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 1);
 
     // Set up cellwise material data.
@@ -1567,12 +1540,12 @@ namespace Step89
 
     // If we have an inhomogenous problem, we have to setup the
     // material handler that accesses the materials at remote faces.
-    std::shared_ptr<RemoteMaterialCache<dim, Number, false>> material_r_cache =
-      nullptr;
+    std::shared_ptr<RemoteMaterialCache<dim, VectorizedArray<Number>>>
+      material_r_cache = nullptr;
     if (!material_data->is_homogenous())
       {
         material_r_cache =
-          std::make_shared<RemoteMaterialCache<dim, Number, false>>(
+          std::make_shared<RemoteMaterialCache<dim, VectorizedArray<Number>>>(
             remote_communicator, tria, materials);
       }
 
@@ -1814,14 +1787,13 @@ namespace Step89
 
     // Setup FERemoteEvaluation object that accesses the pressure
     // at remote faces.
-    const auto pressure_r =
-      std::make_shared<FERemoteEvalCache<1, dim, Number, false>>(
-        remote_communicator, dof_handler, /*first_selected_component*/ 0);
+    const auto pressure_r = std::make_shared<FERemoteEvalCache<1, dim, Number>>(
+      remote_communicator, dof_handler, /*first_selected_component*/ 0);
 
     // Setup FERemoteEvaluation object that accesses the velocity
     // at remote faces.
     const auto velocity_r =
-      std::make_shared<FERemoteEvalCache<dim, dim, Number, false>>(
+      std::make_shared<FERemoteEvalCache<dim, dim, Number>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 1);
 
     // Setup cellwise material data.
@@ -1830,13 +1802,12 @@ namespace Step89
 
     // If we have an inhomogenous problem, we have to setup the
     // material handler that accesses the materials at remote faces.
-    std::shared_ptr<RemoteMaterialCache<dim, Number, true>> material_r_cache =
+    std::shared_ptr<RemoteMaterialCache<dim, Number>> material_r_cache =
       nullptr;
     if (!material_data->is_homogenous())
       {
-        material_r_cache =
-          std::make_shared<RemoteMaterialCache<dim, Number, true>>(
-            remote_communicator, tria, materials);
+        material_r_cache = std::make_shared<RemoteMaterialCache<dim, Number>>(
+          remote_communicator, tria, materials);
       }
 
     // Setup inverse mass operator.
