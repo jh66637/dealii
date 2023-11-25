@@ -449,9 +449,9 @@ namespace Step89
     FERemoteEvalCache<1, dim, Number, !mortaring> phi_rho_cache;
   };
 
-  
+
   // To be able to access the remote material data in a thread safe way
-  // @c RemoteMaterialEvaluation is used (see MaterialEvaluation).  
+  // @c RemoteMaterialEvaluation is used (see MaterialEvaluation).
   template <int dim, typename Number, bool mortaring>
   class RemoteMaterialEvaluation
   {

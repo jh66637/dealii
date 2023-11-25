@@ -203,41 +203,51 @@ namespace internal
     std::vector<gradient_type> gradients;
   };
 
-
-
   /**
    * A class that stores a CRS like structure to access
-   * FERemoteEvaluationData. If use_two_level_crs=false a simple CRS like
-   * structure is created and the offset to the data can be obtained by
-   * `get_shift(index)`. This case is used if quadrature points are only related
-   * to a unique cell/cell-batch ID or face/face-batch ID. If quadrature points
-   * are related to, e.g., a face on a given cell, use_two_level_crs=true and a
-   * two level CRS structure is created. The offset to the data can be obtained
-   * by `get_shift(cell_index, face_number)`.
+   * FERemoteEvaluationData. In most cases a one level CRS structure
+   * is enough. In this case @c ptrs is constructed and the shift can be
+   * obtained with `get_shift(index)`. The field @c ptrs_ptrs stays empty.
+   * It is only filled if a two level structure is needed. In this case
+   * `get_shift(cell_index, face_number)` return the correct shift.
    */
-  template <bool use_two_level_crs>
-  class FERemoteEvaluationDataView
-  {};
-
-
-
-  /**
-   * Specialization for `use_two_level_crs=false`.
-   */
-  template <>
-  struct FERemoteEvaluationDataView<false>
+  struct FERemoteEvaluationDataView
   {
     /**
      * Get a pointer to data at index.
      */
     unsigned int get_shift(const unsigned int index) const
     {
+      Assert(ptrs_ptrs.size() == 0, ExcMessage("Two level CRS set up"));
+
       Assert(index != numbers::invalid_unsigned_int,
              ExcMessage("Index has to be valid!"));
 
       Assert(start <= index, ExcInternalError());
       AssertIndexRange(index - start, ptrs.size());
       return ptrs[index - start];
+    }
+
+    /**
+     * Get a pointer to data at (cell_index, face_number).
+     */
+    unsigned int get_shift(const unsigned int cell_index,
+                           const unsigned int face_number) const
+    {
+      Assert(ptrs_ptrs.size() > 0, ExcMessage("No two level CRS set up"));
+
+      Assert(cell_index != numbers::invalid_unsigned_int,
+             ExcMessage("Cell index has to be valid!"));
+      Assert(face_number != numbers::invalid_unsigned_int,
+             ExcMessage("Face number has to be valid!"));
+
+      Assert(start <= cell_index, ExcInternalError());
+
+      AssertIndexRange(cell_index - start, ptrs_ptrs.size());
+      const unsigned int face_index =
+        ptrs_ptrs[cell_index - start] + face_number;
+      AssertIndexRange(face_index, ptrs.size());
+      return ptrs[face_index];
     }
 
     /**
@@ -253,63 +263,16 @@ namespace internal
      * This parameter can be used if indices do not start with 0.
      */
     unsigned int start = 0;
+
     /**
-     * Pointers to data at index.
+     * Pointers to @c ptrs.
+     */
+    std::vector<unsigned int> ptrs_ptrs;
+
+    /**
+     * Pointers to data.
      */
     std::vector<unsigned int> ptrs;
-  };
-
-
-
-  /**
-   * Specialization for `use_two_level_crs=true`.
-   */
-  template <>
-  struct FERemoteEvaluationDataView<true>
-  {
-    /**
-     * Get a pointer to data at (cell_index, face_number).
-     */
-    unsigned int get_shift(const unsigned int cell_index,
-                           const unsigned int face_number) const
-    {
-      Assert(cell_index != numbers::invalid_unsigned_int,
-             ExcMessage("Cell index has to be valid!"));
-      Assert(face_number != numbers::invalid_unsigned_int,
-             ExcMessage("Face number has to be valid!"));
-
-      Assert(cell_start <= cell_index, ExcInternalError());
-
-      AssertIndexRange(cell_index - cell_start, cell_ptrs.size());
-      const unsigned int face_index =
-        cell_ptrs[cell_index - cell_start] + face_number;
-      AssertIndexRange(face_index, face_ptrs.size());
-      return face_ptrs[face_index];
-    }
-
-    /**
-     * Get the number of stored values.
-     */
-    unsigned int size() const
-    {
-      Assert(face_ptrs.size() > 0, ExcInternalError());
-      return face_ptrs.back();
-    }
-
-    /**
-     * This parameter can be used if cell_indices do not start with 0.
-     */
-    unsigned int cell_start = 0;
-
-    /**
-     * Pointers to first face of given cell_index.
-     */
-    std::vector<unsigned int> cell_ptrs;
-
-    /**
-     * Pointers to data at (cell_index, face_number).
-     */
-    std::vector<unsigned int> face_ptrs;
   };
 
 } // namespace internal
@@ -329,8 +292,6 @@ class FERemoteEvaluationCommunicator : public Subscriptor
     typename internal::FERemoteEvaluationTypeTraits<is_face,
                                                     use_matrix_free_batches>;
 
-  using FERemoteEvaluationDataViewType = internal::FERemoteEvaluationDataView<
-    FERETT::use_two_level_crs>; // TODO:THIS COULD BE SHIFTED TO FERETT
   using CommunicationObjectType =
     typename FERETT::template CommunicationObjectType<dim>;
 
@@ -380,26 +341,29 @@ public:
                                   cell_iterator_range.end()));
 
     // construct view:
-    view.cell_start = 0;
-    view.cell_ptrs.resize(n_cells);
+    auto &cell_ptrs = view.ptrs_ptrs;
+    auto &face_ptrs = view.ptrs;
+
+    view.start = 0;
+    cell_ptrs.resize(n_cells);
     unsigned int n_faces = 0;
     for (const auto &cell : cell_iterator_range)
       {
-        view.cell_ptrs[cell->active_cell_index()] = n_faces;
+        cell_ptrs[cell->active_cell_index()] = n_faces;
         n_faces += cell->n_faces();
       }
 
-    view.face_ptrs.resize(n_faces + 1);
-    view.face_ptrs[0] = 0;
+    face_ptrs.resize(n_faces + 1);
+    face_ptrs[0] = 0;
     for (const auto &cell : cell_iterator_range)
       {
         for (const auto &f : cell->face_indices())
           {
             const unsigned int face_index =
-              view.cell_ptrs[cell->active_cell_index()] + f;
+              cell_ptrs[cell->active_cell_index()] + f;
 
-            view.face_ptrs[face_index + 1] =
-              view.face_ptrs[face_index] +
+            face_ptrs[face_index + 1] =
+              face_ptrs[face_index] +
               quadrature_vector[cell->active_cell_index()][f].size();
           }
       }
@@ -635,7 +599,7 @@ private:
    * CRS like data structure that describes the data positions at given
    * indices.
    */
-  FERemoteEvaluationDataViewType view;
+  internal::FERemoteEvaluationDataView view;
   /**
    * RemotePointEvaluation objects and indices to points used in
    * RemotePointEvaluation.
