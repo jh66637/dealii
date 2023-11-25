@@ -25,6 +25,8 @@
 
 #include <deal.II/numerics/vector_tools.h>
 
+#include <variant>
+
 
 DEAL_II_NAMESPACE_OPEN
 
@@ -275,9 +277,50 @@ namespace internal
     std::vector<unsigned int> ptrs;
   };
 
+
+
 } // namespace internal
 
+// TODO: better names?!
+template <int dim>
+struct CommunicationObjectMatrixFreeCellFaceBatches
+{
+  std::vector<std::pair<unsigned int, unsigned int>> batch_id_n_entities;
+  std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>> rpe;
 
+  std::vector<std::pair<unsigned int, unsigned int>> get_pntrs() const
+  {
+    return batch_id_n_entities;
+  };
+};
+
+template <int dim>
+struct CommunicationObjectCells
+{
+  std::vector<typename Triangulation<dim>::cell_iterator>     cells;
+  std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>> rpe;
+
+  std::vector<typename Triangulation<dim>::cell_iterator> get_pntrs() const
+  {
+    return cells;
+  };
+};
+
+template <int dim>
+struct CommunicationObjectFaces
+{
+  std::vector<
+    std::pair<typename Triangulation<dim>::cell_iterator, unsigned int>>
+                                                              cell_face_nos;
+  std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>> rpe;
+
+  std::vector<
+    std::pair<typename Triangulation<dim>::cell_iterator, unsigned int>>
+  get_pntrs() const
+  {
+    return cell_face_nos;
+  };
+};
 
 /**
  * A class to fill the fields in FERemoteEvaluationData.
@@ -285,28 +328,23 @@ namespace internal
  * (FEEvaluation, FEFaceEvaluation, or FEPointEvaluation). @p is_face specifies
  * if @p FEEvaluationType works on faces.
  */
-template <int dim, bool is_face, bool use_matrix_free_batches>
+template <int dim>
 class FERemoteEvaluationCommunicator : public Subscriptor
 {
-  using FERETT =
-    typename internal::FERemoteEvaluationTypeTraits<is_face,
-                                                    use_matrix_free_batches>;
-
-  using CommunicationObjectType =
-    typename FERETT::template CommunicationObjectType<dim>;
-
 public:
-  template <bool F = is_face, bool B = use_matrix_free_batches>
-  typename std::enable_if<true == (F && B), void>::type reinit_faces(
-    std::vector<std::pair<
-      std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>>,
-      std::vector<std::pair<unsigned int, unsigned int>>>> comm_objects,
-    const std::pair<unsigned int, unsigned int>           &face_batch_range,
-    const std::vector<Quadrature<dim>>                    &quadrature_vector)
+  void reinit_faces(
+    const std::vector<CommunicationObjectMatrixFreeCellFaceBatches<dim>>
+                                                &comm_objects,
+    const std::pair<unsigned int, unsigned int> &face_batch_range,
+    const std::vector<Quadrature<dim>>          &quadrature_vector)
   {
-    communication_objects = comm_objects;
-    // fetch points and update communication patterns
+    // erase type by converting to the base object
+    communication_objects.clear();
+    for (const auto &co : comm_objects)
+      communication_objects.push_back(co);
 
+
+    // fetch points and update communication patterns
     const unsigned int n_cells = quadrature_vector.size();
     AssertDimension(n_cells, face_batch_range.second - face_batch_range.first);
 
@@ -322,18 +360,16 @@ public:
       }
   }
 
-  template <typename Iterator,
-            bool F = is_face,
-            bool B = use_matrix_free_batches>
-  typename std::enable_if<true == (F && !B), void>::type reinit_faces(
-    std::vector<std::pair<
-      std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>>,
-      std::vector<std::pair<typename Triangulation<dim>::cell_iterator,
-                            unsigned int>>>>             comm_objects,
+  template <typename Iterator>
+  void reinit_faces(
+    const std::vector<CommunicationObjectFaces<dim>>    &comm_objects,
     const IteratorRange<Iterator>                       &cell_iterator_range,
     const std::vector<std::vector<Quadrature<dim - 1>>> &quadrature_vector)
   {
-    communication_objects = comm_objects;
+    // erase type
+    communication_objects.clear();
+    for (const auto &co : comm_objects)
+      communication_objects.push_back(co);
 
     const unsigned int n_cells = quadrature_vector.size();
     AssertDimension(n_cells,
@@ -391,30 +427,32 @@ public:
       src.update_ghost_values();
 
 
-    for (auto &communication_object : communication_objects)
+    for (const auto &communication_object : communication_objects)
       {
         if (eval_flags & EvaluationFlags::values)
           {
-            copy_data(dst.values,
-                      VectorTools::point_values<n_components>(
-                        *communication_object.first,
-                        mesh,
-                        src,
-                        vec_flags,
-                        first_selected_component),
-                      communication_object.second);
+            work_communation_objects(
+              communication_object, [&](const auto &obj) {
+                copy_data(
+                  dst.values,
+                  VectorTools::point_values<n_components>(
+                    *obj.rpe, mesh, src, vec_flags, first_selected_component),
+                  view,
+                  obj.get_pntrs());
+              });
           }
 
         if (eval_flags & EvaluationFlags::gradients)
           {
-            copy_data(dst.gradients,
-                      VectorTools::point_gradients<n_components>(
-                        *communication_object.first,
-                        mesh,
-                        src,
-                        vec_flags,
-                        first_selected_component),
-                      communication_object.second);
+            work_communation_objects(
+              communication_object, [&](const auto &obj) {
+                copy_data(
+                  dst.gradients,
+                  VectorTools::point_gradients<n_components>(
+                    *obj.rpe, mesh, src, vec_flags, first_selected_component),
+                  view,
+                  obj.get_pntrs());
+              });
           }
 
         Assert(!(eval_flags & EvaluationFlags::hessians), ExcNotImplemented());
@@ -427,9 +465,7 @@ public:
   /**
    * Get a pointer to data at index.
    */
-  template <bool F = is_face, bool B = use_matrix_free_batches>
-  typename std::enable_if_t<false == (F && !B), unsigned int>
-  get_shift(const unsigned int index) const
+  unsigned int get_shift(const unsigned int index) const
   {
     return view.get_shift(index);
   }
@@ -437,31 +473,58 @@ public:
   /**
    * Get a pointer to data at (cell_index, face_number).
    */
-  template <bool F = is_face, bool B = use_matrix_free_batches>
-  typename std::enable_if_t<true == (F && !B), unsigned int>
-  get_shift(const unsigned int cell_index, const unsigned int face_number) const
+  unsigned int get_shift(const unsigned int cell_index,
+                         const unsigned int face_number) const
   {
     return view.get_shift(cell_index, face_number);
   }
 
 private:
   /**
-   * Copy data obtained with RemotePointEvaluation to corresponding field
-   * FERemoteEvaluationData.
+   * CRS like data structure that describes the data positions at given
+   * indices.
    */
+  internal::FERemoteEvaluationDataView view;
+  /**
+   * RemotePointEvaluation objects and indices to points used in
+   * RemotePointEvaluation.
+   */
+  using PossibleCommObjects =
+    std::variant<CommunicationObjectMatrixFreeCellFaceBatches<dim>,
+                 CommunicationObjectCells<dim>,
+                 CommunicationObjectFaces<dim>>;
+  std::vector<PossibleCommObjects> communication_objects;
+
+  template <typename Lambda>
+  void work_communation_objects(const PossibleCommObjects &comm_obj,
+                                const Lambda              &lambda) const
+  {
+    if (std::holds_alternative<
+          CommunicationObjectMatrixFreeCellFaceBatches<dim>>(comm_obj))
+      lambda(
+        std::get<CommunicationObjectMatrixFreeCellFaceBatches<dim>>(comm_obj));
+    else if (std::holds_alternative<CommunicationObjectCells<dim>>(comm_obj))
+      lambda(std::get<CommunicationObjectCells<dim>>(comm_obj));
+    else if (std::holds_alternative<CommunicationObjectFaces<dim>>(comm_obj))
+      lambda(std::get<CommunicationObjectFaces<dim>>(comm_obj));
+    else
+      Assert(false, ExcMessage("Can not work on communication object."));
+  }
+
   template <typename T1, typename T2>
-  void copy_data(std::vector<T1>       &dst,
-                 const std::vector<T2> &src,
-                 const std::vector<typename Triangulation<dim>::cell_iterator>
-                   &data_ptrs) const
+  void copy_data(
+    std::vector<T1>                                               &dst,
+    const std::vector<T2>                                         &src,
+    const internal::FERemoteEvaluationDataView                    &view,
+    const std::vector<typename Triangulation<dim>::cell_iterator> &cells) const
   {
     dst.resize(view.size());
 
     unsigned int c = 0;
-    for (const auto &data_ptr : data_ptrs)
+    for (const auto &cell : cells)
       {
-        for (unsigned int j = get_shift(data_ptr.first->active_cell_index());
-             j < get_shift(data_ptr->active_cell_index() + 1);
+        for (unsigned int j = view.get_shift(cell->active_cell_index());
+             j < view.get_shift(cell->active_cell_index() + 1);
              ++j, ++c)
           {
             AssertIndexRange(j, dst.size());
@@ -471,26 +534,23 @@ private:
       }
   }
 
-  /**
-   * Copy data obtained with RemotePointEvaluation to corresponding field
-   * FERemoteEvaluationData.
-   */
+
+
   template <typename T1, typename T2>
   void copy_data(
     std::vector<T1>                            &dst,
     const std::vector<T2>                      &src,
+    const internal::FERemoteEvaluationDataView &view,
     const std::vector<std::pair<typename Triangulation<dim>::cell_iterator,
-                                unsigned int>> &data_ptrs) const
+                                unsigned int>> &cell_face_nos) const
   {
     dst.resize(view.size());
 
     unsigned int c = 0;
-    for (const auto &data_ptr : data_ptrs)
+    for (const auto &[cell, f] : cell_face_nos)
       {
-        for (unsigned int j =
-               get_shift(data_ptr.first->active_cell_index(), data_ptr.second);
-             j < get_shift(data_ptr.first->active_cell_index(),
-                           data_ptr.second + 1);
+        for (unsigned int j = view.get_shift(cell->active_cell_index(), f);
+             j < view.get_shift(cell->active_cell_index(), f + 1);
              ++j, ++c)
           {
             AssertIndexRange(j, dst.size());
@@ -501,26 +561,22 @@ private:
       }
   }
 
-  /**
-   * Copy data obtained with RemotePointEvaluation to corresponding field
-   * FERemoteEvaluationData.
-   */
+
   template <typename T1, typename T2>
-  void copy_data(
-    std::vector<T1>                                          &dst,
-    const std::vector<T2>                                    &src,
-    const std::vector<std::pair<unsigned int, unsigned int>> &data_ptrs) const
+  void copy_data(std::vector<T1>                            &dst,
+                 const std::vector<T2>                      &src,
+                 const internal::FERemoteEvaluationDataView &view,
+                 const std::vector<std::pair<unsigned int, unsigned int>>
+                   &batch_id_n_entities) const
   {
     dst.resize(view.size());
 
     unsigned int c = 0;
-    for (const auto &data_ptr : data_ptrs)
+    for (const auto &[batch_id, n_entries] : batch_id_n_entities)
       {
-        const unsigned int bface     = data_ptr.first;
-        const unsigned int n_entries = data_ptr.second;
-
         for (unsigned int v = 0; v < n_entries; ++v)
-          for (unsigned int j = get_shift(bface); j < get_shift(bface + 1);
+          for (unsigned int j = view.get_shift(batch_id);
+               j < view.get_shift(batch_id + 1);
                ++j, ++c)
             {
               AssertIndexRange(j, dst.size());
@@ -531,9 +587,8 @@ private:
       }
   }
 
-  /**
-   * Copy data between different data layouts.
-   */
+
+
   template <typename T1, std::size_t n_lanes>
   void copy_data_entries(VectorizedArray<T1, n_lanes> &dst,
                          const unsigned int            v,
@@ -567,9 +622,6 @@ private:
       }
   }
 
-  /**
-   * Copy data between different data layouts.
-   */
   template <typename T1,
             int         rank_,
             std::size_t n_lanes,
@@ -595,16 +647,11 @@ private:
       }
   }
 
-  /**
-   * CRS like data structure that describes the data positions at given
-   * indices.
-   */
-  internal::FERemoteEvaluationDataView view;
-  /**
-   * RemotePointEvaluation objects and indices to points used in
-   * RemotePointEvaluation.
-   */
-  std::vector<CommunicationObjectType> communication_objects;
+  template <typename T1, typename T2>
+  void copy_data_entries(T1 &, const unsigned int, const T2 &) const
+  {
+    Assert(false, ExcMessage("should not be called"));
+  }
 };
 
 /**
@@ -627,13 +674,13 @@ template <int dim,
           bool use_matrix_free_batches>
 class FERemoteEvaluationCache
 {
-  using FERemoteEvaluationCommunicatorType =
-    FERemoteEvaluationCommunicator<dim, is_face, use_matrix_free_batches>;
   using FERETT =
     typename internal::FERemoteEvaluationTypeTraits<is_face,
                                                     use_matrix_free_batches>;
 
-
+  // TODO: we could get rid of is_face, use_matrix_free_batches if we can
+  // determin
+  // the value_type and gradient type in a different manner!
   using FERemoteEvaluationDataType =
     typename internal::FERemoteEvaluationData<dim,
                                               n_components,
@@ -659,8 +706,8 @@ public:
    * DoFHandlers with multiple components.
    */
   template <typename MeshType>
-  FERemoteEvaluationCache(const FERemoteEvaluationCommunicatorType &comm,
-                          const MeshType                           &mesh,
+  FERemoteEvaluationCache(const FERemoteEvaluationCommunicator<dim> &comm,
+                          const MeshType                            &mesh,
                           const unsigned int first_selected_component = 0,
                           const VectorTools::EvaluationFlags::EvaluationFlags
                             vt_flags = VectorTools::EvaluationFlags::avg)
@@ -777,7 +824,7 @@ private:
    * gives position of values and gradients stored in
    * FERemoteEvaluationData.
    */
-  SmartPointer<const FERemoteEvaluationCommunicatorType> comm;
+  SmartPointer<const FERemoteEvaluationCommunicator<dim>> comm;
 
   /**
    * Pointer to MeshType if used with Triangulation.

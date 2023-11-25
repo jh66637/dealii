@@ -49,7 +49,7 @@
 // to access values and/or gradients at remote triangulations similar to
 // FEEvaluation.
 #include "fe_remote_evaluation.h"
-// TODO: this file is not yet in deal.ii and will end up in
+// TODO:!!!!!!!!!! this file is not yet in deal.ii and will end up in
 // #include <deal.II/matrix_free/fe_remote_evaluation.h>
 
 // We pack everything that is specific for this program into a namespace
@@ -403,9 +403,8 @@ namespace Step89
   {
   public:
     RemoteMaterialCache(
-      const FERemoteEvaluationCommunicator<dim, true, !mortaring>
-                               &remote_communicator,
-      const Triangulation<dim> &tria,
+      const FERemoteEvaluationCommunicator<dim> &remote_communicator,
+      const Triangulation<dim>                  &tria,
       const std::map<types::material_id, std::pair<double, double>>
         &material_id_map)
       : phi_c_cache(remote_communicator, tria)
@@ -615,7 +614,7 @@ namespace Step89
     template <typename VectorType>
     void evaluate(VectorType &dst, const VectorType &src) const
     {
-      // TODO: we should consider to merge pressure_r_mortar and pressure_r
+      // TODO:!!!!!!!!!! we should consider to merge pressure_r_mortar and pressure_r
 
       if (use_mortaring)
         {
@@ -710,7 +709,7 @@ namespace Step89
     // as well. This is because we iterate over each side of the non-matching
     // face seperately (similar to a cell
     // centric loop).
-    template <bool weight_neighbor, // TODO: I would make this an argument
+    template <bool weight_neighbor, // TODO:!!!!!!!!!! I would make this an argument
               typename InternalFaceIntegratorPressure,
               typename InternalFaceIntegratorVelocity,
               typename ExternalFaceIntegratorPressure,
@@ -755,7 +754,7 @@ namespace Step89
 
     // This function evaluates the fluxes at faces between cells with differnet
     // materials. This can only happen over non-matching interfaces. Therefore,
-    // it is clear that weight_neighbor=false. TODO: to make this function
+    // it is clear that weight_neighbor=false. TODO:!!!!!!!!!! to make this function
     // symmetrical, I would make weight_neighbor an argument and assert that the
     // value is false.
     template <
@@ -763,7 +762,7 @@ namespace Step89
       typename InternalFaceIntegratorVelocity,
       typename ExternalFaceIntegratorPressure,
       typename ExternalFaceIntegratorVelocity,
-      bool mortaring> // TODO: I would remove this template argument (also from
+      bool mortaring> // TODO:!!!!!!!!!! I would remove this template argument (also from
                       // RemoteMaterialHandler)
     void evaluate_face_kernel_inhomogeneous(
       InternalFaceIntegratorPressure &pressure_m,
@@ -1423,25 +1422,25 @@ namespace Step89
     // points (that provide exterior information) to the quadrature points
     // defined at the interior cell. In case of point-to-point interpolation
     // a vector of pairs with face batch Ids and the number of faces in the
-    // batch is needed. The information is filled outside of the actual class
-    // since in some cases the information is available from some heuristic and
+    // batch is needed. @c CommunicationObjectMatrixFreeCellFaceBatches
+    // is a container to store this information.
+    //
+    // The information is filled outside of the actual class since in some cases
+    // the information is available from some heuristic and
     // it is possible to skip some expensive operations. This is for example
     // the case for sliding rotating interfaces with equally spaced elements on
     // both sides of the non-matching interface @cite duerrwaechter2021an.
-    using CommunicationObjet =
-      std::pair<std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>>,
-                std::vector<std::pair<unsigned int, unsigned int>>>;
-
+    //
     // We need multiple communication objects (one for each non-matching face
     // ID).
-    std::vector<CommunicationObjet> comm_objects;
+    std::vector<CommunicationObjectMatrixFreeCellFaceBatches<dim>> comm_objects;
 
     // Additionally to the communicaton objects we need a vector
     // that stores quadrature rules for every face batch.
     // The quadrature can be empty in case of non non-matching faces,
     // i.e. boundary faces. Internally this information is needed to correctly
     // access values over multiple communication objects.
-    // TODO: This interface is motivated by the initialization of
+    // TODO:!!!!!!!!!! This interface is motivated by the initialization of
     //  NonMatchingMapping info. We could change this (MARCO/PETER).
     std::vector<Quadrature<dim>> global_quadrature_vector(
       matrix_free.n_boundary_face_batches());
@@ -1524,9 +1523,9 @@ namespace Step89
                        ExcMessage(
                          "Quadrature for given face already provided."));
 
-                // TODO: Only the information of the quadrature size is needed
+                // TODO:!!!!!!!!!! Only the information of the quadrature size is needed
                 //  (MARCO/PETER)
-                global_quadrature_vector[bface] = // TODO: this is odd!? Why do
+                global_quadrature_vector[bface] = // TODO:!!!!!!!!!! this is odd!? Why do
                                                   // wee need empty quadratures?
                   Quadrature<dim>(phi.get_quadrature_points().size());
               }
@@ -1538,11 +1537,14 @@ namespace Step89
                ExcMessage("Not all remote points found."));
 
         // Add communication object to the list of objects.
-        comm_objects.push_back(std::make_pair(rpe, face_batch_id_n_faces));
+        CommunicationObjectMatrixFreeCellFaceBatches<dim> co;
+        co.batch_id_n_entities = face_batch_id_n_faces;
+        co.rpe                 = rpe;
+        comm_objects.push_back(co);
       }
 
     // Renit the communicator with the communication objects.
-    FERemoteEvaluationCommunicator<dim, true, true> remote_communicator;
+    FERemoteEvaluationCommunicator<dim> remote_communicator;
     remote_communicator.reinit_faces(comm_objects,
                                      face_batch_range,
                                      global_quadrature_vector);
@@ -1634,14 +1636,11 @@ namespace Step89
 
     // In case of Nitsche-type mortaring a vector of pairs with cell iterators
     // and face number is needed as communication object.
-    using CommunicationObjet = std::pair<
-      std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>>,
-      std::vector<
-        std::pair<typename Triangulation<dim>::cell_iterator, unsigned int>>>;
-
+    // @c CommunicationObjectFaces is a container to store this infromation.
+    //
     // We need multiple communication objects (one for each non-matching face
     // ID).
-    std::vector<CommunicationObjet> comm_objects;
+    std::vector<CommunicationObjectFaces<dim>> comm_objects;
 
     // Iterate over all sides of the non-matching interface.
     for (const auto &nm_face : non_matching_faces)
@@ -1773,12 +1772,15 @@ namespace Step89
               Quadrature<dim - 1>(face_points, quad.get_weights());
           }
 
-        // Add communication object to the list of objects.
-        comm_objects.push_back(std::make_pair(rpe, cell_face_pairs));
+        // Add communication object
+        CommunicationObjectFaces<dim> co;
+        co.cell_face_nos = cell_face_pairs;
+        co.rpe           = rpe;
+        comm_objects.push_back(co);
       }
 
     // Renit the communicator with the communication objects.
-    FERemoteEvaluationCommunicator<dim, true, false> remote_communicator;
+    FERemoteEvaluationCommunicator<dim> remote_communicator;
     remote_communicator.reinit_faces(
       comm_objects,
       matrix_free.get_dof_handler().get_triangulation().active_cell_iterators(),
