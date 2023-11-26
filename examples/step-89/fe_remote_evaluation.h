@@ -32,11 +32,9 @@ DEAL_II_NAMESPACE_OPEN
 
 namespace internal
 {
-
   /**
    * A class that stores values and/or gradients at quadrature points
-   * corresponding to a FEEvaluationType (FEEvaluation, FEFaceEvaluation,
-   * FEPointEvaluation).
+   * corresponding to a FEEvaluationType.
    */
   template <int dim, int n_components, typename value_type_>
   struct PrecomputedFEEvaluationData
@@ -46,7 +44,6 @@ namespace internal
 
     using gradient_type = typename internal::FEPointEvaluation::
       EvaluatorTypeTraits<dim, n_components, value_type_>::gradient_type;
-
 
     /**
      * Values at quadrature points.
@@ -61,8 +58,8 @@ namespace internal
 
   /**
    * A class that stores a CRS like structure to access
-   * FERemoteEvaluationData. In most cases a one level CRS structure
-   * is enough. In this case @c ptrs is constructed and the shift can be
+   * PrecomputedFEEvaluationData. In most cases a one level CRS structure
+   * is enough. In this case @c ptrs has to be constructed and the shift can be
    * obtained with `get_shift(index)`. The field @c ptrs_ptrs stays empty.
    * It is only filled if a two level structure is needed. In this case
    * `get_shift(cell_index, face_number)` return the correct shift.
@@ -85,7 +82,7 @@ namespace internal
     }
 
     /**
-     * Get a pointer to data at (cell_index, face_number).
+     * Get a pointer to data at, e.g. (cell_index, face_number).
      */
     unsigned int get_shift(const unsigned int cell_index,
                            const unsigned int face_number) const
@@ -131,76 +128,95 @@ namespace internal
     std::vector<unsigned int> ptrs;
   };
 
-template <int dim, int n_components, typename value_type>
-class PrecomputedFEEvaluationDataAccessor
-{
-public:
-  PrecomputedFEEvaluationDataAccessor(
-    const PrecomputedFEEvaluationData<dim, n_components, value_type>
-                                                    &data,
-    const PrecomputedFEEvaluationDataView &view)
-    : view(view)
-    , data(data)
-    , data_offset(numbers::invalid_unsigned_int)
-  {}
-
   /**
-   * Get the value at quadrature point @p q. The entity on which the values
-   * are defined is set via `reinit()`.
+   * A class helps to access @c PrecomputedFEEvaluationData in a thread safe
+   * manner. Each thread has to create this wrapper class on its own to
+   * avoid race-conditions during @c reinit().
    */
-  const auto get_value(const unsigned int q) const
+  template <int dim, int n_components, typename value_type>
+  class PrecomputedFEEvaluationDataAccessor
   {
-    Assert(data_offset != numbers::invalid_unsigned_int,
-           ExcMessage("reinit() not called."));
-    AssertIndexRange(data_offset + q, data.values.size());
-    return data.values[data_offset + q];
-  }
+  public:
+    PrecomputedFEEvaluationDataAccessor(
+      const PrecomputedFEEvaluationData<dim, n_components, value_type> &data,
+      const PrecomputedFEEvaluationDataView                            &view)
+      : view(view)
+      , data(data)
+      , data_offset(numbers::invalid_unsigned_int)
+    {}
 
-  /**
-   * Get the gradients at quadrature point @p q. The entity on which the
-   * gradients are defined is set via `reinit()`.
-   */
-  const auto get_gradient(const unsigned int q) const
-  {
-    Assert(data_offset != numbers::invalid_unsigned_int,
-           ExcMessage("reinit() not called."));
-    AssertIndexRange(data_offset + q, data.gradients.size());
-    return data.gradients[data_offset + q];
-  }
+    /**
+     * Get the value at quadrature point @p q. The entity on which the values
+     * are defined is set via `reinit()`.
+     */
+    const auto get_value(const unsigned int q) const
+    {
+      Assert(data_offset != numbers::invalid_unsigned_int,
+             ExcMessage("reinit() not called."));
+      AssertIndexRange(data_offset + q, data.values.size());
+      return data.values[data_offset + q];
+    }
+
+    /**
+     * Get the gradients at quadrature point @p q. The entity on which the
+     * gradients are defined is set via `reinit()`.
+     */
+    const auto get_gradient(const unsigned int q) const
+    {
+      Assert(data_offset != numbers::invalid_unsigned_int,
+             ExcMessage("reinit() not called."));
+      AssertIndexRange(data_offset + q, data.gradients.size());
+      return data.gradients[data_offset + q];
+    }
 
 
-  /**
-   * Set entity index at which quadrature points are accessed. This can, e.g.,
-   * a cell index, a cell batch index, or a face batch index.
-   */
-  void reinit(const unsigned int index)
-  {
-    data_offset = view.get_shift(index);
-  }
+    /**
+     * Set entity index at which quadrature points are accessed. This can, e.g.,
+     * a cell index, a cell batch index, or a face batch index.
+     */
+    void reinit(const unsigned int index)
+    {
+      data_offset = view.get_shift(index);
+    }
 
-  /**
-   * Set cell and face_number at which quadrature points are accessed.
-   */
-  void reinit(const unsigned int cell_index, const unsigned int face_number)
-  {
-    data_offset = view.get_shift(cell_index, face_number);
-  }
+    /**
+     * Set cell and face_number at which quadrature points are accessed.
+     */
+    void reinit(const unsigned int cell_index, const unsigned int face_number)
+    {
+      data_offset = view.get_shift(cell_index, face_number);
+    }
 
-private:
-  const PrecomputedFEEvaluationDataView &view;
-  const PrecomputedFEEvaluationData<dim, n_components, value_type>
-    &data;
+  private:
+    /**
+     * PrecomputedFEEvaluationDataView provides information where values are
+     * located.
+     */
+    const PrecomputedFEEvaluationDataView &view;
 
-  /**
-   * Offset to data after last call of `reinit()`.
-   */
-  unsigned int data_offset;
-};
+    /**
+     * PrecomputedFEEvaluationData stores the actual values.
+     */
+    const PrecomputedFEEvaluationData<dim, n_components, value_type> &data;
+
+    /**
+     * Offset to data after last call of `reinit()`.
+     */
+    unsigned int data_offset;
+  };
 
 
 } // namespace internal
 
-
+/**
+ * Communication objects know about the communication pattern.
+ * In case of (matrix-free) cells batches or faces batches
+ * a @c RemotePointEvaluation object stores the location of the
+ * remote points. @c batch_id_n_entities relates these points
+ * to the corresponding quadrature points of entity batches.
+ * For this the field stores batch IDs and the number of entities
+ * in the batch.
+ */
 template <int dim>
 struct FERemoteCommunicationObjectEntityBatches
 {
@@ -213,6 +229,12 @@ struct FERemoteCommunicationObjectEntityBatches
   };
 };
 
+/**
+ * Similar as @FERemoteCommunicationObjectEntityBatches.
+ * To relate the points from @c RemotePointEvaluation to
+ * quadrature points on corresponding cells, cell iterators
+ * have to be stored.
+ */
 template <int dim>
 struct FERemoteCommunicationObjectCells
 {
@@ -225,6 +247,12 @@ struct FERemoteCommunicationObjectCells
   };
 };
 
+/**
+ * Similar as @FERemoteCommunicationObjectCells.
+ * To relate the points from @c RemotePointEvaluation to
+ * quadrature points on corresponding faces, cell iterators
+ * and face numbers have to be stored.
+ */
 template <int dim>
 struct FERemoteCommunicationObjectFaces
 {
@@ -242,20 +270,22 @@ struct FERemoteCommunicationObjectFaces
 };
 
 /**
- * A class to fill the fields in FERemoteEvaluationData.
- * FERemoteEvaluation is thought to be used with another @p FEEvaluationType
- * (FEEvaluation, FEFaceEvaluation, or FEPointEvaluation). @p is_face specifies
- * if @p FEEvaluationType works on faces.
+ * A class to fill the fields in PrecomputedFEEvaluationData.
  */
 template <int dim>
 class FERemoteEvaluationCommunicator : public Subscriptor
 {
 public:
-  void reinit_faces(
-    const std::vector<FERemoteCommunicationObjectEntityBatches<dim>>
-                                                &comm_objects,
-    const std::pair<unsigned int, unsigned int> &face_batch_range,
-    const std::vector<Quadrature<dim>>          &quadrature_vector)
+  /**
+   * This function stores given communication objects
+   * and constructs a @c PrecomputedFEEvaluationDataView
+   * object if remote points are related to matrix-free face batches.
+   */
+  void
+  reinit_faces(const std::vector<FERemoteCommunicationObjectEntityBatches<dim>>
+                                                           &comm_objects,
+               const std::pair<unsigned int, unsigned int> &face_batch_range,
+               const std::vector<Quadrature<dim>>          &quadrature_vector)
   {
     // erase type by converting to the base object
     communication_objects.clear();
@@ -279,9 +309,15 @@ public:
       }
   }
 
+  /**
+   * This function stores given communication objects
+   * and constructs a @c PrecomputedFEEvaluationDataView
+   * object if remote points are related to faces of given
+   * cells.
+   */
   template <typename Iterator>
   void reinit_faces(
-    const std::vector<FERemoteCommunicationObjectFaces<dim>>    &comm_objects,
+    const std::vector<FERemoteCommunicationObjectFaces<dim>> &comm_objects,
     const IteratorRange<Iterator>                       &cell_iterator_range,
     const std::vector<std::vector<Quadrature<dim - 1>>> &quadrature_vector)
   {
@@ -324,16 +360,15 @@ public:
       }
   }
 
-
   /**
-   * Fill the fields stored in FERemoteEvaluationData.
+   * Fill the fields stored in PrecomputedFEEvaluationData.
    */
   template <int n_components,
-            typename FERemoteEvaluationDataType,
+            typename PrecomputedFEEvaluationDataType,
             typename MeshType,
             typename VectorType>
   void update_ghost_values(
-    FERemoteEvaluationDataType            &dst,
+    PrecomputedFEEvaluationDataType       &dst,
     const MeshType                        &mesh,
     const VectorType                      &src,
     const EvaluationFlags::EvaluationFlags eval_flags,
@@ -358,12 +393,13 @@ public:
                     *obj.rpe, mesh, src, vec_flags, first_selected_component),
                   view,
                   obj.get_pntrs());
-              },communication_object);
+              },
+              communication_object);
           }
 
         if (eval_flags & EvaluationFlags::gradients)
           {
-              std::visit(
+            std::visit(
               [&](const auto &obj) {
                 copy_data(
                   dst.gradients,
@@ -371,7 +407,8 @@ public:
                     *obj.rpe, mesh, src, vec_flags, first_selected_component),
                   view,
                   obj.get_pntrs());
-              },communication_object);
+              },
+              communication_object);
           }
 
         Assert(!(eval_flags & EvaluationFlags::hessians), ExcNotImplemented());
@@ -381,7 +418,10 @@ public:
       src.zero_out_ghost_values();
   }
 
-  const  internal::PrecomputedFEEvaluationDataView &get_view() const
+  /**
+   * Provide access to @c PrecomputedFEEvaluationDataView.
+   */
+  const internal::PrecomputedFEEvaluationDataView &get_view() const
   {
     return view;
   }
@@ -392,19 +432,24 @@ private:
    * indices.
    */
   internal::PrecomputedFEEvaluationDataView view;
-  /**
-   * RemotePointEvaluation objects and indices to points used in
-   * RemotePointEvaluation.
-   */
-  std::vector<    std::variant<FERemoteCommunicationObjectEntityBatches<dim>,
-                 FERemoteCommunicationObjectCells<dim>,
-                 FERemoteCommunicationObjectFaces<dim>>> communication_objects;
 
+  /**
+   * A variant for all possible communication objects.
+   */
+  std::vector<std::variant<FERemoteCommunicationObjectEntityBatches<dim>,
+                           FERemoteCommunicationObjectCells<dim>,
+                           FERemoteCommunicationObjectFaces<dim>>>
+    communication_objects;
+
+  // The rest of the class only deals with copying data
+  /**
+   * Copy data from @c src to @c dst. Overload for @c
+   * FERemoteCommunicationObjectCells.
+   */
   template <typename T1, typename T2>
   void copy_data(
     std::vector<T1>                                               &dst,
     const std::vector<T2>                                         &src,
-    const internal::PrecomputedFEEvaluationDataView               &view,
     const std::vector<typename Triangulation<dim>::cell_iterator> &cells) const
   {
     dst.resize(view.size());
@@ -423,8 +468,10 @@ private:
       }
   }
 
-
-
+  /**
+   * Copy data from @c src to @c dst. Overload for @c
+   * FERemoteCommunicationObjectFaces.
+   */
   template <typename T1, typename T2>
   void copy_data(
     std::vector<T1>                                 &dst,
@@ -450,7 +497,10 @@ private:
       }
   }
 
-
+  /**
+   * Copy data from @c src to @c dst. Overload for @c
+   * FERemoteCommunicationObjectEntityBatches.
+   */
   template <typename T1, typename T2>
   void copy_data(std::vector<T1>                                 &dst,
                  const std::vector<T2>                           &src,
@@ -476,8 +526,9 @@ private:
       }
   }
 
-
-
+  /**
+   * Copy data to the correct position in a @c VectorizedArray.
+   */
   template <typename T1, std::size_t n_lanes>
   void copy_data_entries(VectorizedArray<T1, n_lanes> &dst,
                          const unsigned int            v,
@@ -489,7 +540,7 @@ private:
   }
 
   /**
-   * Copy data between different data layouts.
+   * Similar as @c copy_data_entries() above.
    */
   template <typename T1, int rank_, std::size_t n_lanes, int dim_>
   void copy_data_entries(Tensor<rank_, dim_, VectorizedArray<T1, n_lanes>> &dst,
@@ -511,6 +562,9 @@ private:
       }
   }
 
+  /**
+   * Similar as @c copy_data_entries() above.
+   */
   template <typename T1,
             int         rank_,
             std::size_t n_lanes,
@@ -536,26 +590,29 @@ private:
       }
   }
 
+  /**
+   * Throw a run time exception if @c copy_data_entries() has not been
+   * implemented for given types.
+   */
   template <typename T1, typename T2>
   void copy_data_entries(T1 &, const unsigned int, const T2 &) const
   {
-    Assert(false, ExcMessage("copy_data_entries() not implemented for given arguments."));
+    Assert(false,
+           ExcMessage(
+             "copy_data_entries() not implemented for given arguments."));
   }
 };
 
-
-
 /**
  * Class to access data in matrix-free loops for non-matching discretizations.
- * Interfaces are named with FEEvaluation, FEFaceEvaluation or FEPointEvaluation
- * in mind. The main difference is, that `gather_evaluate()` updates and caches
- * all values at once. Therefore, it has to be called only once before a
+ * Interfaces are named with FEEvaluation in mind.
+ * The main difference is, that `gather_evaluate()` updates and caches
+ * all values at once. Therefore, it has to be called on one thread before a
  * matrix-free loop.
  *
- * FERemoteEvaluation is thought to be used with another @p FEEvaluationType
- * (FEEvaluation, FEFaceEvaluation, or FEPointEvaluation).
- * FERemoteEvaluationCommunicator knows the type. However,
- * FERemoteEvaluationCommunicator is independent of @p n_components.
+ * To access values and gradients in a thread safe way, @c get_data_accessor()
+ * has to be called on every thread. It provides the functions `get_value()` and
+ * `get_gradient()`.
  */
 template <int dim, int n_components, typename value_type>
 class FERemoteEvaluation
@@ -619,10 +676,25 @@ public:
       AssertThrow(false, ExcNotImplemented());
   }
 
+  /**
+   * @c FERemoteEvaluation does not provide the functions `get_value()` and
+   *`get_gradient()`. To access values and/or gradients call @c
+   *get_data_accessor() on every thread. E.g. auto remote_evaluator =
+   *get_data_accessor();
+   *@code
+   * for (unsigned int entity = range.first; entity < range.second; ++entity)
+   * {
+   *    remote_evaluator.reinit(entity);
+   *    for(unsigned int q : quadrature_point_indices())
+   *      remote_evaluator.get_value(q)
+   * }
+   *@endcode
+   */
   internal::PrecomputedFEEvaluationDataAccessor<dim, n_components, value_type>
   get_data_accessor() const
   {
-    internal::PrecomputedFEEvaluationDataAccessor data_accessor(data, comm->get_view());
+    internal::PrecomputedFEEvaluationDataAccessor data_accessor(
+      data, comm->get_view());
     return data_accessor;
   }
 
@@ -644,14 +716,12 @@ private:
   }
 
   /**
-   * Data that is accessed by `get_value()` and `get_gradient()`.
+   * Precomputed values and/or gradients at remote locations.
    */
   internal::PrecomputedFEEvaluationData<dim, n_components, value_type> data;
 
   /**
-   * Underlying communicator which handles update of the ghost values and
-   * gives position of values and gradients stored in
-   * FERemoteEvaluationData.
+   * Underlying communicator which handles update of the ghost values.
    */
   SmartPointer<const FERemoteEvaluationCommunicator<dim>> comm;
 
@@ -659,6 +729,7 @@ private:
    * Pointer to MeshType if used with Triangulation.
    */
   SmartPointer<const Triangulation<dim>> tria;
+
   /**
    * Pointer to MeshType if used with DoFHandler.
    */
