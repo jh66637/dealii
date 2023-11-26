@@ -1315,15 +1315,12 @@ namespace Step89
         // Points that are searched by rpe.
         std::vector<Point<dim>> points;
 
-        // Temporarily setup FEFaceValues to access the quadrature points at
+        // Temporarily setup FEFaceEvaluation to access the quadrature points at
         // the faces on the non-matching interface.
-        FEFaceValues<dim> phi(mapping,
-                              dof_handler.get_fe(),
-                              QGauss<dim - 1>(
-                                matrix_free.get_quadrature().size()),
-                              update_quadrature_points);
+        FEFaceEvaluation<dim, -1, 0, 1, Number> phi(matrix_free, true, 0, 0, 0);
 
         // Iterate over the boundary faces.
+        // TODO:!!!!!!!! why do results differ if run with MPI?!
         for (unsigned int bface = 0;
              bface < face_batch_range.second - face_batch_range.first;
              ++bface)
@@ -1332,6 +1329,8 @@ namespace Step89
 
             if (matrix_free.get_boundary_id(face) == nm_face)
               {
+                phi.reinit(face);
+
                 // If face is on the current side of the non-matching interface.
                 // Add face batch ID and number of faces in batch to the
                 // corresponding data structure.
@@ -1343,12 +1342,15 @@ namespace Step89
                 // for.
                 for (unsigned int v = 0; v < n_faces; ++v)
                   {
-                    const auto [cell, f] =
-                      matrix_free.get_face_iterator(face, v, true);
-                    phi.reinit(cell, f);
-                    points.insert(points.end(),
-                                  phi.get_quadrature_points().begin(),
-                                  phi.get_quadrature_points().end());
+                    for (unsigned int q = 0; q < phi.n_q_points; ++q)
+                      {
+                        const auto         point = phi.quadrature_point(q);
+                        dealii::Point<dim> temp;
+                        for (unsigned int i = 0; i < dim; ++i)
+                          temp[i] = point[i][v];
+
+                        points.push_back(temp);
+                      }
                   }
 
                 // Insert a quadrature rule of correct size into the global
@@ -1359,7 +1361,7 @@ namespace Step89
                          "Quadrature for given face already provided."));
 
                 global_quadrature_vector[bface] =
-                  Quadrature<dim>(phi.get_quadrature_points().size());
+                  Quadrature<dim>(phi.n_q_points);
               }
           }
 
@@ -1841,7 +1843,6 @@ int main(int argc, char *argv[])
   pcout << " - Point-to-point interpolation: " << std::endl;
   // Run vibrating membrane testcase using point-to-point interpolation:
 
-  // TODO:!!!!!!!! why do results differ if run with MPI?!
   Step89::run_with_point_to_point_interpolation(
     matrix_free,
     non_matching_faces,
