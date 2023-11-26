@@ -200,9 +200,9 @@ private:
 
 } // namespace internal
 
-// TODO: better names?!
+
 template <int dim>
-struct CommunicationObjectMatrixFreeCellFaceBatches
+struct FERemoteCommunicationObjectEntityBatches
 {
   std::vector<std::pair<unsigned int, unsigned int>> batch_id_n_entities;
   std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>> rpe;
@@ -214,7 +214,7 @@ struct CommunicationObjectMatrixFreeCellFaceBatches
 };
 
 template <int dim>
-struct CommunicationObjectCells
+struct FERemoteCommunicationObjectCells
 {
   std::vector<typename Triangulation<dim>::cell_iterator>     cells;
   std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>> rpe;
@@ -226,7 +226,7 @@ struct CommunicationObjectCells
 };
 
 template <int dim>
-struct CommunicationObjectFaces
+struct FERemoteCommunicationObjectFaces
 {
   std::vector<
     std::pair<typename Triangulation<dim>::cell_iterator, unsigned int>>
@@ -252,7 +252,7 @@ class FERemoteEvaluationCommunicator : public Subscriptor
 {
 public:
   void reinit_faces(
-    const std::vector<CommunicationObjectMatrixFreeCellFaceBatches<dim>>
+    const std::vector<FERemoteCommunicationObjectEntityBatches<dim>>
                                                 &comm_objects,
     const std::pair<unsigned int, unsigned int> &face_batch_range,
     const std::vector<Quadrature<dim>>          &quadrature_vector)
@@ -281,7 +281,7 @@ public:
 
   template <typename Iterator>
   void reinit_faces(
-    const std::vector<CommunicationObjectFaces<dim>>    &comm_objects,
+    const std::vector<FERemoteCommunicationObjectFaces<dim>>    &comm_objects,
     const IteratorRange<Iterator>                       &cell_iterator_range,
     const std::vector<std::vector<Quadrature<dim - 1>>> &quadrature_vector)
   {
@@ -396,11 +396,9 @@ private:
    * RemotePointEvaluation objects and indices to points used in
    * RemotePointEvaluation.
    */
-  using PossibleCommObjects =
-    std::variant<CommunicationObjectMatrixFreeCellFaceBatches<dim>,
-                 CommunicationObjectCells<dim>,
-                 CommunicationObjectFaces<dim>>;
-  std::vector<PossibleCommObjects> communication_objects;
+  std::vector<    std::variant<FERemoteCommunicationObjectEntityBatches<dim>,
+                 FERemoteCommunicationObjectCells<dim>,
+                 FERemoteCommunicationObjectFaces<dim>>> communication_objects;
 
   template <typename T1, typename T2>
   void copy_data(
