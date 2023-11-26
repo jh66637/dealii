@@ -39,7 +39,7 @@ namespace internal
    * FEPointEvaluation).
    */
   template <int dim, int n_components, typename value_type_>
-  struct FERemoteEvaluationData
+  struct PrecomputedFEEvaluationData
   {
     using value_type = typename internal::FEPointEvaluation::
       EvaluatorTypeTraits<dim, n_components, value_type_>::value_type;
@@ -67,7 +67,7 @@ namespace internal
    * It is only filled if a two level structure is needed. In this case
    * `get_shift(cell_index, face_number)` return the correct shift.
    */
-  struct FERemoteEvaluationDataView
+  struct PrecomputedFEEvaluationDataView
   {
     /**
      * Get a pointer to data at index.
@@ -338,7 +338,7 @@ private:
    * CRS like data structure that describes the data positions at given
    * indices.
    */
-  internal::FERemoteEvaluationDataView view;
+  internal::PrecomputedFEEvaluationDataView view;
   /**
    * RemotePointEvaluation objects and indices to points used in
    * RemotePointEvaluation.
@@ -369,7 +369,7 @@ private:
   void copy_data(
     std::vector<T1>                                               &dst,
     const std::vector<T2>                                         &src,
-    const internal::FERemoteEvaluationDataView                    &view,
+    const internal::PrecomputedFEEvaluationDataView                    &view,
     const std::vector<typename Triangulation<dim>::cell_iterator> &cells) const
   {
     dst.resize(view.size());
@@ -394,7 +394,7 @@ private:
   void copy_data(
     std::vector<T1>                            &dst,
     const std::vector<T2>                      &src,
-    const internal::FERemoteEvaluationDataView &view,
+    const internal::PrecomputedFEEvaluationDataView &view,
     const std::vector<std::pair<typename Triangulation<dim>::cell_iterator,
                                 unsigned int>> &cell_face_nos) const
   {
@@ -419,7 +419,7 @@ private:
   template <typename T1, typename T2>
   void copy_data(std::vector<T1>                            &dst,
                  const std::vector<T2>                      &src,
-                 const internal::FERemoteEvaluationDataView &view,
+                 const internal::PrecomputedFEEvaluationDataView &view,
                  const std::vector<std::pair<unsigned int, unsigned int>>
                    &batch_id_n_entities) const
   {
@@ -646,7 +646,7 @@ private:
   /**
    * Data that is accessed by `get_value()` and `get_gradient()`.
    */
-  internal::FERemoteEvaluationData<dim, n_components, value_type> data;
+  internal::PrecomputedFEEvaluationData<dim, n_components, value_type> data;
 
   /**
    * Underlying communicator which handles update of the ghost values and
