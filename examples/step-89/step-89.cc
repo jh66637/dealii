@@ -48,9 +48,7 @@
 // The following header file provides the class FERemoteEvaluation, which allows
 // to access values and/or gradients at remote triangulations similar to
 // FEEvaluation.
-#include "fe_remote_evaluation.h"
-// TODO:!!!!!!!!!! this file is not yet in deal.ii and will end up in
-// #include <deal.II/matrix_free/fe_remote_evaluation.h>
+#include <deal.II/matrix_free/fe_remote_evaluation.h>
 
 // We pack everything that is specific for this program into a namespace
 // of its own.
