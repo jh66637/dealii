@@ -144,8 +144,6 @@ public:
     , data_offset(numbers::invalid_unsigned_int)
   {}
 
-
-
   /**
    * Get the value at quadrature point @p q. The entity on which the values
    * are defined is set via `reinit()`.
@@ -352,28 +350,28 @@ public:
       {
         if (eval_flags & EvaluationFlags::values)
           {
-            work_communation_objects(
-              communication_object, [&](const auto &obj) {
+            std::visit(
+              [&](const auto &obj) {
                 copy_data(
                   dst.values,
                   VectorTools::point_values<n_components>(
                     *obj.rpe, mesh, src, vec_flags, first_selected_component),
                   view,
                   obj.get_pntrs());
-              });
+              },communication_object);
           }
 
         if (eval_flags & EvaluationFlags::gradients)
           {
-            work_communation_objects(
-              communication_object, [&](const auto &obj) {
+              std::visit(
+              [&](const auto &obj) {
                 copy_data(
                   dst.gradients,
                   VectorTools::point_gradients<n_components>(
                     *obj.rpe, mesh, src, vec_flags, first_selected_component),
                   view,
                   obj.get_pntrs());
-              });
+              },communication_object);
           }
 
         Assert(!(eval_flags & EvaluationFlags::hessians), ExcNotImplemented());
@@ -383,24 +381,7 @@ public:
       src.zero_out_ghost_values();
   }
 
-  /**
-   * Get a pointer to data at index.
-   */
-  unsigned int get_shift(const unsigned int index) const
-  {
-    return view.get_shift(index);
-  }
-
-  /**
-   * Get a pointer to data at (cell_index, face_number).
-   */
-  unsigned int get_shift(const unsigned int cell_index,
-                         const unsigned int face_number) const
-  {
-    return view.get_shift(cell_index, face_number);
-  }
-
-  const auto &get_view() const
+  const  internal::PrecomputedFEEvaluationDataView &get_view() const
   {
     return view;
   }
@@ -420,22 +401,6 @@ private:
                  CommunicationObjectCells<dim>,
                  CommunicationObjectFaces<dim>>;
   std::vector<PossibleCommObjects> communication_objects;
-
-  template <typename Lambda>
-  void work_communation_objects(const PossibleCommObjects &comm_obj,
-                                const Lambda              &lambda) const
-  {
-    if (std::holds_alternative<
-          CommunicationObjectMatrixFreeCellFaceBatches<dim>>(comm_obj))
-      lambda(
-        std::get<CommunicationObjectMatrixFreeCellFaceBatches<dim>>(comm_obj));
-    else if (std::holds_alternative<CommunicationObjectCells<dim>>(comm_obj))
-      lambda(std::get<CommunicationObjectCells<dim>>(comm_obj));
-    else if (std::holds_alternative<CommunicationObjectFaces<dim>>(comm_obj))
-      lambda(std::get<CommunicationObjectFaces<dim>>(comm_obj));
-    else
-      Assert(false, ExcMessage("Can not work on communication object."));
-  }
 
   template <typename T1, typename T2>
   void copy_data(
@@ -576,7 +541,7 @@ private:
   template <typename T1, typename T2>
   void copy_data_entries(T1 &, const unsigned int, const T2 &) const
   {
-    Assert(false, ExcMessage("should not be called"));
+    Assert(false, ExcMessage("copy_data_entries() not implemented for given arguments."));
   }
 };
 
@@ -656,35 +621,6 @@ public:
       AssertThrow(false, ExcNotImplemented());
   }
 
-
-  /**
-   * Set entity index at which quadrature points are accessed. This can, e.g.,
-   * a cell index, a cell batch index, or a face batch index.
-   */
-  unsigned int get_shift(const unsigned int index) const
-  {
-    return comm->get_shift(index);
-  }
-
-  /**
-   * Set cell and face_number at which quadrature points are accessed.
-   */
-  unsigned int get_shift(const unsigned int cell_index,
-                         const unsigned int face_number) const
-  {
-    return comm->get_shift(cell_index, face_number);
-  }
-
-  const auto &get_comm() const
-  {
-    return *comm;
-  }
-
-  const auto &get_data() const
-  {
-    return data;
-  }
-
   internal::PrecomputedFEEvaluationDataAccessor<dim, n_components, value_type>
   get_data_accessor() const
   {
@@ -708,8 +644,6 @@ private:
   {
     this->dof_handler = &dof_handler;
   }
-
-
 
   /**
    * Data that is accessed by `get_value()` and `get_gradient()`.
