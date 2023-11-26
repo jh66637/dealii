@@ -390,7 +390,6 @@ public:
                   dst.values,
                   VectorTools::point_values<n_components>(
                     *obj.rpe, mesh, src, vec_flags, first_selected_component),
-                  view,
                   obj.get_pntrs());
               },
               communication_object);
@@ -404,7 +403,6 @@ public:
                   dst.gradients,
                   VectorTools::point_gradients<n_components>(
                     *obj.rpe, mesh, src, vec_flags, first_selected_component),
-                  view,
                   obj.get_pntrs());
               },
               communication_object);
@@ -473,11 +471,10 @@ private:
    */
   template <typename T1, typename T2>
   void copy_data(
-    std::vector<T1>                                 &dst,
-    const std::vector<T2>                           &src,
-    const internal::PrecomputedFEEvaluationDataView &view,
+    std::vector<T1>                            &dst,
+    const std::vector<T2>                      &src,
     const std::vector<std::pair<typename Triangulation<dim>::cell_iterator,
-                                unsigned int>>      &cell_face_nos) const
+                                unsigned int>> &cell_face_nos) const
   {
     dst.resize(view.size());
 
@@ -501,9 +498,8 @@ private:
    * FERemoteCommunicationObjectEntityBatches.
    */
   template <typename T1, typename T2>
-  void copy_data(std::vector<T1>                                 &dst,
-                 const std::vector<T2>                           &src,
-                 const internal::PrecomputedFEEvaluationDataView &view,
+  void copy_data(std::vector<T1>       &dst,
+                 const std::vector<T2> &src,
                  const std::vector<std::pair<unsigned int, unsigned int>>
                    &batch_id_n_entities) const
   {
