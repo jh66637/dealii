@@ -131,6 +131,73 @@ namespace internal
     std::vector<unsigned int> ptrs;
   };
 
+template <int dim, int n_components, typename value_type>
+class PrecomputedFEEvaluationDataAccessor
+{
+public:
+  PrecomputedFEEvaluationDataAccessor(
+    const PrecomputedFEEvaluationData<dim, n_components, value_type>
+                                                    &data,
+    const PrecomputedFEEvaluationDataView &view)
+    : view(view)
+    , data(data)
+    , data_offset(numbers::invalid_unsigned_int)
+  {}
+
+
+
+  /**
+   * Get the value at quadrature point @p q. The entity on which the values
+   * are defined is set via `reinit()`.
+   */
+  const auto get_value(const unsigned int q) const
+  {
+    Assert(data_offset != numbers::invalid_unsigned_int,
+           ExcMessage("reinit() not called."));
+    AssertIndexRange(data_offset + q, data.values.size());
+    return data.values[data_offset + q];
+  }
+
+  /**
+   * Get the gradients at quadrature point @p q. The entity on which the
+   * gradients are defined is set via `reinit()`.
+   */
+  const auto get_gradient(const unsigned int q) const
+  {
+    Assert(data_offset != numbers::invalid_unsigned_int,
+           ExcMessage("reinit() not called."));
+    AssertIndexRange(data_offset + q, data.gradients.size());
+    return data.gradients[data_offset + q];
+  }
+
+
+  /**
+   * Set entity index at which quadrature points are accessed. This can, e.g.,
+   * a cell index, a cell batch index, or a face batch index.
+   */
+  void reinit(const unsigned int index)
+  {
+    data_offset = view.get_shift(index);
+  }
+
+  /**
+   * Set cell and face_number at which quadrature points are accessed.
+   */
+  void reinit(const unsigned int cell_index, const unsigned int face_number)
+  {
+    data_offset = view.get_shift(cell_index, face_number);
+  }
+
+private:
+  const PrecomputedFEEvaluationDataView &view;
+  const PrecomputedFEEvaluationData<dim, n_components, value_type>
+    &data;
+
+  /**
+   * Offset to data after last call of `reinit()`.
+   */
+  unsigned int data_offset;
+};
 
 
 } // namespace internal
@@ -513,83 +580,6 @@ private:
   }
 };
 
-// forward declaration
-template <int dim,
-               int n_components,
-               typename value_type> class FERemoteEvaluation;
-
-template <int dim, int n_components, typename value_type>
-class FERemoteEvaluationView
-{
-public:
-  FERemoteEvaluationView(
-    const FERemoteEvaluation<dim, n_components, value_type> &cache);
-  //   : FERemoteEvaluationView(cache.get_data(), cache.get_comm().get_view())
-  // {}
-
-  FERemoteEvaluationView(
-    const internal::PrecomputedFEEvaluationData<dim, n_components, value_type>
-                                                    &data,
-    const internal::PrecomputedFEEvaluationDataView &view)
-    : view(view)
-    , data(data)
-    , data_offset(numbers::invalid_unsigned_int)
-  {}
-
-
-
-  /**
-   * Get the value at quadrature point @p q. The entity on which the values
-   * are defined is set via `reinit()`.
-   */
-  const auto get_value(const unsigned int q) const
-  {
-    Assert(data_offset != numbers::invalid_unsigned_int,
-           ExcMessage("reinit() not called."));
-    AssertIndexRange(data_offset + q, data.values.size());
-    return data.values[data_offset + q];
-  }
-
-  /**
-   * Get the gradients at quadrature point @p q. The entity on which the
-   * gradients are defined is set via `reinit()`.
-   */
-  const auto get_gradient(const unsigned int q) const
-  {
-    Assert(data_offset != numbers::invalid_unsigned_int,
-           ExcMessage("reinit() not called."));
-    AssertIndexRange(data_offset + q, data.gradients.size());
-    return data.gradients[data_offset + q];
-  }
-
-
-  /**
-   * Set entity index at which quadrature points are accessed. This can, e.g.,
-   * a cell index, a cell batch index, or a face batch index.
-   */
-  void reinit(const unsigned int index)
-  {
-    data_offset = view.get_shift(index);
-  }
-
-  /**
-   * Set cell and face_number at which quadrature points are accessed.
-   */
-  void reinit(const unsigned int cell_index, const unsigned int face_number)
-  {
-    data_offset = view.get_shift(cell_index, face_number);
-  }
-
-private:
-  const internal::PrecomputedFEEvaluationDataView &view;
-  const internal::PrecomputedFEEvaluationData<dim, n_components, value_type>
-    &data;
-
-  /**
-   * Offset to data after last call of `reinit()`.
-   */
-  unsigned int data_offset;
-};
 
 
 /**
@@ -695,14 +685,13 @@ public:
     return data;
   }
 
-
-  
-  FERemoteEvaluationView<dim, n_components, value_type>  get_accessor()
+  internal::PrecomputedFEEvaluationDataAccessor<dim, n_components, value_type>
+  get_data_accessor() const
   {
-    FERemoteEvaluationView view(data,comm->get_view());
-    return view;
+    internal::PrecomputedFEEvaluationDataAccessor data_accessor(data, comm->get_view());
+    return data_accessor;
   }
-  
+
 private:
   /**
    * Use Triangulation as MeshType.
@@ -754,12 +743,6 @@ private:
   const VectorTools::EvaluationFlags::EvaluationFlags vt_flags;
 };
 
-
-template <int dim, int n_components, typename value_type>
-FERemoteEvaluationView<dim, n_components, value_type>::FERemoteEvaluationView(
-  const FERemoteEvaluation<dim, n_components, value_type> &cache)
-  : FERemoteEvaluationView(cache.get_data(), cache.get_comm().get_view())
-{}
 
 
 DEAL_II_NAMESPACE_CLOSE

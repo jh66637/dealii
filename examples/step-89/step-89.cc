@@ -374,109 +374,6 @@ namespace Step89
     VectorizedArray<Number> density;
   };
 
-  // Similar to the material handling above we also need the materials
-  // in the neighboring cells. We restrict ourself to phase jumps over
-  // non-matching interfaces and in which it is not trivial to access
-  // the correct values. Besides this, it is possible, that materials at the
-  // neighboring cells change in every quadrature point. This class holds
-  // @c FERemoteEvaluationCache objects with the cached densities and
-  // speeds of sound.
-  template <int dim, typename Number, typename value_type>
-  class RemoteMaterialCache
-  {
-  public:
-    RemoteMaterialCache(
-      const FERemoteEvaluationCommunicator<dim> &remote_communicator,
-      const Triangulation<dim>                  &tria,
-      const std::map<types::material_id, std::pair<double, double>>
-        &material_id_map)
-      : phi_c_cache(remote_communicator, tria)
-      , phi_rho_cache(remote_communicator, tria)
-    {
-      Assert(material_id_map.size() > 0,
-             ExcMessage("No materials given to MaterialHandler"));
-
-      // Initialize and fill DoF vectors that contain the materials.
-      Vector<Number> c(tria.n_active_cells());
-      Vector<Number> rho(tria.n_active_cells());
-
-      for (const auto &cell : tria.active_cell_iterators())
-        {
-          c[cell->active_cell_index()] =
-            material_id_map.at(cell->material_id()).first;
-          rho[cell->active_cell_index()] =
-            material_id_map.at(cell->material_id()).second;
-        }
-
-      // Cache the remote values at all quadrature points. Since
-      // the cellwise materials do not change during the simulation
-      // calling @c gather_evaluate() once in the beginning is enough.
-      phi_c_cache.gather_evaluate(c, EvaluationFlags::values);
-      phi_rho_cache.gather_evaluate(rho, EvaluationFlags::values);
-    }
-
-    const auto &get_speed_of_sound_cache() const
-    {
-      return phi_c_cache;
-    }
-
-    const auto &get_density_cache() const
-    {
-      return phi_rho_cache;
-    }
-
-  private:
-    // FERemoteEvaluation objects with cached values.
-    FERemoteEvaluation<dim, 1, value_type> phi_c_cache;
-    FERemoteEvaluation<dim, 1, value_type> phi_rho_cache;
-  };
-
-
-  //TODO:!!!!!!!!!!!! REMOTE MAT HANDLER CURRENTLY NOT WORKING
-  // To be able to access the remote material data in a thread safe way
-  // @c RemoteMaterialEvaluation is used (see MaterialEvaluation).
-  template <int dim, typename Number, typename value_type>
-  class RemoteMaterialEvaluation
-  {
-  public:
-    RemoteMaterialEvaluation(
-      const RemoteMaterialCache<dim, Number, value_type> &cache)
-      // : phi_c(cache.get_speed_of_sound_cache())
-      // , phi_rho(cache.get_density_cache())
-      {};
-
-    // In case of point-to-point interpolation we need to call
-    // the underlying reinit functions with face batch ids.
-    void reinit_face(const unsigned int face)
-    {
-      // phi_c.reinit(face);
-      // phi_rho.reinit(face);
-    }
-
-    // In case of mortaring we need to call the underlying reinit
-    // functions with the cell index and face number.
-    void reinit_face(const unsigned int cell, const unsigned int face)
-    {
-      // phi_c.reinit(cell, face);
-      // phi_rho.reinit(cell, face);
-    }
-
-    // Return the materials in the current quadrature point. The
-    // return type chagnes dependent on the use of mortaring or
-    // point-to-point interpolation. We simply use auto to automatically
-    // choose the correct return type.
-    std::pair<value_type, value_type> get_materials(unsigned int q) const
-    {
-      // return std::make_pair(phi_c.get_value(q), phi_rho.get_value(q));
-      return {};
-    }
-
-  private:
-    // FERemoteEvaluation objects with cached values.
-    // FERemoteEvaluationView<dim, 1, value_type> phi_c;
-    // FERemoteEvaluationView<dim, 1, value_type> phi_rho;
-  };
-
 
   //@sect3{Boundary conditions}
   //
@@ -543,8 +440,10 @@ namespace Step89
       std::shared_ptr<FERemoteEvaluation<dim, dim, remote_value_type>>
                                                     velocity_r_cache,
       std::shared_ptr<CellwiseMaterialData<Number>> material_data,
-      std::shared_ptr<RemoteMaterialCache<dim, Number, remote_value_type>>
-        material_remote_cache,
+      std::shared_ptr<FERemoteEvaluation<dim, 1, remote_value_type>>
+        c_r,
+      std::shared_ptr<FERemoteEvaluation<dim, 1, remote_value_type>>
+        rho_r,
       std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>> nm_info =
         nullptr)
       : matrix_free(matrix_free_in)
@@ -553,7 +452,7 @@ namespace Step89
       , velocity_r_cache(velocity_r_cache)
       , nm_mapping_info(nm_info)
       , material_data(material_data)
-      , material_r_cache(material_remote_cache)
+      ,c_r_cache(c_r),rho_r_cache(rho_r)
     {}
 
     // Function to evaluate the acoustic operator.
@@ -695,7 +594,8 @@ namespace Step89
     template <typename InternalFaceIntegratorPressure,
               typename InternalFaceIntegratorVelocity,
               typename ExternalFaceIntegratorPressure,
-              typename ExternalFaceIntegratorVelocity>
+              typename ExternalFaceIntegratorVelocity,
+              typename MaterialIntegrator>
     void evaluate_face_kernel_inhomogeneous(
       InternalFaceIntegratorPressure &pressure_m,
       InternalFaceIntegratorVelocity &velocity_m,
@@ -704,8 +604,9 @@ namespace Step89
       const std::pair<typename InternalFaceIntegratorPressure::value_type,
                       typename InternalFaceIntegratorPressure::value_type>
         &materials,
-      const RemoteMaterialEvaluation<dim, Number, remote_value_type>
-        &material_r) const
+      MaterialIntegrator &c_r,
+      MaterialIntegrator &rho_r
+                                            ) const
     {
       // The material at the current cell is constant.
       const auto [c, rho] = materials;
@@ -716,7 +617,8 @@ namespace Step89
         {
           // The material at the neighboring face might vary in every quadrature
           // point.
-          const auto [c_p, rho_p]  = material_r.get_materials(q);
+          const auto c_p=c_r.get_value(q);
+          const auto rho_p=rho_r.get_value(q);
           const auto tau_p         = 0.5 * rho_p * c_p;
           const auto gamma_p       = 0.5 / (rho_p * c_p);
           const auto tau_sum_inv   = 1.0 / (tau_m + tau_p);
@@ -815,16 +717,15 @@ namespace Step89
 
       // Class that gives access to material at each cell
       MaterialEvaluation       material(matrix_free, *material_data);
-      RemoteMaterialEvaluation material_r(*material_r_cache);
-
+      auto c_r=c_r_cache->get_data_accessor();
+      auto rho_r=rho_r_cache->get_data_accessor();
+      
       // Classes which return the correct BC values.
       BCEvalP pressure_bc(pressure_m);
       BCEvalU velocity_bc(velocity_m);
 
-      // FERemoteEvaluationView pressure_r(*pressure_r_cache);
-      //TODO:!!!!!!!!!!!!!!!! make all of the data view objects work this way
-      auto pressure_r= pressure_r_cache->get_accessor();
-      FERemoteEvaluationView velocity_r(*velocity_r_cache);
+      auto pressure_r = pressure_r_cache->get_data_accessor();
+      auto velocity_r = velocity_r_cache->get_data_accessor();
 
       for (unsigned int face = face_range.first; face < face_range.second;
            face++)
@@ -871,13 +772,14 @@ namespace Step89
                 {
                   // If in-homogenous material is considered use the
                   // in-homogenous fluxes.
-                  material_r.reinit_face(face);
+                  c_r.reinit(face);
+                  rho_r.reinit(face);
                   evaluate_face_kernel_inhomogeneous(pressure_m,
                                                      velocity_m,
                                                      pressure_r,
                                                      velocity_r,
                                                      material.get_materials(),
-                                                     material_r);
+                                                     c_r,rho_r);
                 }
             }
           else
@@ -919,8 +821,9 @@ namespace Step89
 
       // Class that gives access to material at each cell
       MaterialEvaluation       material(matrix_free, *material_data);
-      RemoteMaterialEvaluation material_r_mortar(*material_r_cache);
-
+                            auto c_r=c_r_cache->get_data_accessor();
+      auto rho_r=rho_r_cache->get_data_accessor();
+      
       // Classes which return the correct BC values.
       BCEvalP pressure_bc(pressure_m);
       BCEvalU velocity_bc(velocity_m);
@@ -939,9 +842,9 @@ namespace Step89
       FEPointEvaluation<dim, dim, dim, Number> velocity_m_mortar(
         *nm_mapping_info, matrix_free.get_dof_handler().get_fe(), 1);
 
-      FERemoteEvaluationView pressure_r_mortar(*pressure_r_cache);
-      FERemoteEvaluationView velocity_r_mortar(*velocity_r_cache);
-
+      auto pressure_r_mortar = pressure_r_cache->get_data_accessor();
+      auto velocity_r_mortar = velocity_r_cache->get_data_accessor();
+      
       // Buffer on which FEPointEvaluation is working on.
       AlignedVector<Number> buffer(
         matrix_free.get_dof_handler().get_fe().dofs_per_cell);
@@ -1001,7 +904,11 @@ namespace Step89
                       // material that is defined at a certain cell in the cell
                       // batches. Hence we call @c
                       // material.get_materials(v).
-                      material_r_mortar.reinit_face(cell->active_cell_index(),
+
+
+      c_r.reinit(cell->active_cell_index(),
+                                                    f);
+      rho_r.reinit(cell->active_cell_index(),
                                                     f);
                       evaluate_face_kernel_inhomogeneous(pressure_m_mortar,
                                                          velocity_m_mortar,
@@ -1009,7 +916,7 @@ namespace Step89
                                                          velocity_r_mortar,
                                                          material.get_materials(
                                                            v),
-                                                         material_r_mortar);
+                                                         c_r,rho_r);
                     }
 
                   // @c integrate(sum_into_values=false) zeroes out the
@@ -1074,8 +981,12 @@ namespace Step89
     // CellwiseMaterialData is stored as shared pointer with the same
     // argumentation.
     const std::shared_ptr<CellwiseMaterialData<Number>> material_data;
-    const std::shared_ptr<RemoteMaterialCache<dim, Number, remote_value_type>>
-      material_r_cache;
+
+    const std::shared_ptr<FERemoteEvaluation<dim, 1, remote_value_type>>
+      c_r_cache;
+    const std::shared_ptr<FERemoteEvaluation<dim, 1, remote_value_type>>
+      rho_r_cache;
+
   };
 
   //@sect3{Inverse mass operator}
@@ -1501,14 +1412,31 @@ namespace Step89
 
     // If we have an inhomogenous problem, we have to setup the
     // material handler that accesses the materials at remote faces.
-    std::shared_ptr<RemoteMaterialCache<dim, Number, remote_value_type>>
-      material_r_cache = nullptr;
+    const auto c_r =
+      std::make_shared<FERemoteEvaluation<dim, 1, remote_value_type>>(
+        remote_communicator, matrix_free.get_dof_handler().get_triangulation(), /*first_selected_component*/ 0);
+    const auto rho_r =
+      std::make_shared<FERemoteEvaluation<dim, 1, remote_value_type>>(
+        remote_communicator, matrix_free.get_dof_handler().get_triangulation(), /*first_selected_component*/ 0);
+
     if (!material_data->is_homogenous())
       {
-        material_r_cache =
-          std::make_shared<RemoteMaterialCache<dim, Number, remote_value_type>>(
-            remote_communicator, tria, materials);
+      // Initialize and fill DoF vectors that contain the materials.
+      Vector<Number> c(matrix_free.get_dof_handler().get_triangulation().n_active_cells());
+      Vector<Number> rho(matrix_free.get_dof_handler().get_triangulation().n_active_cells());
+
+      for (const auto &cell : matrix_free.get_dof_handler().get_triangulation().active_cell_iterators())
+        {
+          c[cell->active_cell_index()] =
+            materials.at(cell->material_id()).first;
+          rho[cell->active_cell_index()] =
+            materials.at(cell->material_id()).second;
+        }
+
+      c_r->gather_evaluate(c,EvaluationFlags::values);
+      rho_r->gather_evaluate(rho,EvaluationFlags::values);
       }
+
 
     // Setup inverse mass operator.
     const auto inverse_mass_operator =
@@ -1523,7 +1451,7 @@ namespace Step89
         pressure_r,
         velocity_r,
         material_data,
-        material_r_cache);
+        c_r,rho_r);
 
     // Compute the the maximum speed of sound, needed for the computation of
     // the time-step size.
@@ -1767,13 +1695,29 @@ namespace Step89
 
     // If we have an inhomogenous problem, we have to setup the
     // material handler that accesses the materials at remote faces.
-    std::shared_ptr<RemoteMaterialCache<dim, Number, remote_value_type>>
-      material_r_cache = nullptr;
+    const auto c_r =
+      std::make_shared<FERemoteEvaluation<dim, 1, remote_value_type>>(
+        remote_communicator,matrix_free.get_dof_handler().get_triangulation(), /*first_selected_component*/ 0);
+    const auto rho_r =
+      std::make_shared<FERemoteEvaluation<dim, 1, remote_value_type>>(
+        remote_communicator, matrix_free.get_dof_handler().get_triangulation(), /*first_selected_component*/ 0);
+
     if (!material_data->is_homogenous())
       {
-        material_r_cache =
-          std::make_shared<RemoteMaterialCache<dim, Number, Number>>(
-            remote_communicator, tria, materials);
+      // Initialize and fill DoF vectors that contain the materials.
+      Vector<Number> c(matrix_free.get_dof_handler().get_triangulation().n_active_cells());
+      Vector<Number> rho(matrix_free.get_dof_handler().get_triangulation().n_active_cells());
+
+      for (const auto &cell : matrix_free.get_dof_handler().get_triangulation().active_cell_iterators())
+        {
+          c[cell->active_cell_index()] =
+            materials.at(cell->material_id()).first;
+          rho[cell->active_cell_index()] =
+            materials.at(cell->material_id()).second;
+        }
+
+      c_r->gather_evaluate(c,EvaluationFlags::values);
+      rho_r->gather_evaluate(rho,EvaluationFlags::values);
       }
 
     // Setup inverse mass operator.
@@ -1790,7 +1734,8 @@ namespace Step89
         pressure_r,
         velocity_r,
         material_data,
-        material_r_cache,
+        c_r,
+        rho_r,
         nm_mapping_info);
 
     // Compute the the maximum speed of sound, needed for the computation of
