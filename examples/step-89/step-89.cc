@@ -381,7 +381,7 @@ namespace Step89
   // neighboring cells change in every quadrature point. This class holds
   // @c FERemoteEvaluationCache objects with the cached densities and
   // speeds of sound.
-  template <int dim, typename value_type, typename Number = double>
+  template <int dim, typename Number, typename value_type>
   class RemoteMaterialCache
   {
   public:
@@ -434,11 +434,12 @@ namespace Step89
 
   // To be able to access the remote material data in a thread safe way
   // @c RemoteMaterialEvaluation is used (see MaterialEvaluation).
-  template <int dim, typename value_type>
+  template <int dim, typename Number, typename value_type>
   class RemoteMaterialEvaluation
   {
   public:
-    RemoteMaterialEvaluation(const RemoteMaterialCache<dim, value_type> &cache)
+    RemoteMaterialEvaluation(
+      const RemoteMaterialCache<dim, Number, value_type> &cache)
       : phi_c(cache.get_speed_of_sound_cache())
       , phi_rho(cache.get_density_cache()){};
 
@@ -521,75 +522,48 @@ namespace Step89
   //@sect3{Acoustic operator}
   //
   // Class that defines the acoustic operator.
-  template <int dim, typename Number>
+  template <int dim, typename Number, typename remote_value_type>
   class AcousticOperator
   {
-  public:
-    // Constructor with all the needed ingredients for the operator. If this
-    // constructor is used, the operator is setup for point-to-point
-    // interpolation.
-    AcousticOperator(
-      const MatrixFree<dim, Number>      &matrix_free_in,
-      const std::set<types::boundary_id> &non_matching_face_ids,
-      std::shared_ptr<FERemoteEvaluation<dim, 1, VectorizedArray<Number>>>
-        pressure_r_cache,
-      std::shared_ptr<FERemoteEvaluation<dim, dim, VectorizedArray<Number>>>
-                                                    velocity_r_cache,
-      std::shared_ptr<CellwiseMaterialData<Number>> material_data,
-      std::shared_ptr<RemoteMaterialCache<dim, VectorizedArray<Number>>>
-        material_remote_cache)
-      : use_mortaring(false)
-      , matrix_free(matrix_free_in)
-      , remote_face_ids(non_matching_face_ids)
-      , pressure_r_cache(pressure_r_cache)
-      , velocity_r_cache(velocity_r_cache)
-      , nm_mapping_info(nullptr)
-      , pressure_r_mortar_cache(nullptr)
-      , velocity_r_mortar_cache(nullptr)
-      , material_data(material_data)
-      , material_r_cache(material_remote_cache)
-      , material_r_mortar_cache(nullptr)
-    {}
+    static constexpr bool use_mortaring =
+      std::is_floating_point_v<remote_value_type>;
 
+  public:
     // Constructor with all the needed ingredients for the operator. If this
     // constructor is used, the operator is setup for Nitsche-type mortaring.
     AcousticOperator(
       const MatrixFree<dim, Number>      &matrix_free_in,
       const std::set<types::boundary_id> &non_matching_face_ids,
-      std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>> nm_info,
-      std::shared_ptr<FERemoteEvaluation<dim, 1, Number>>   pressure_r_cache,
-      std::shared_ptr<FERemoteEvaluation<dim, dim, Number>> velocity_r_cache,
-      std::shared_ptr<CellwiseMaterialData<Number>>         material_data,
-      std::shared_ptr<RemoteMaterialCache<dim, Number>> material_remote_cache)
-      : use_mortaring(true)
-      , matrix_free(matrix_free_in)
+
+      std::shared_ptr<FERemoteEvaluation<dim, 1, remote_value_type>>
+        pressure_r_cache,
+      std::shared_ptr<FERemoteEvaluation<dim, dim, remote_value_type>>
+                                                    velocity_r_cache,
+      std::shared_ptr<CellwiseMaterialData<Number>> material_data,
+      std::shared_ptr<RemoteMaterialCache<dim, Number, remote_value_type>>
+        material_remote_cache,
+      std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>> nm_info =
+        nullptr)
+      : matrix_free(matrix_free_in)
       , remote_face_ids(non_matching_face_ids)
-      , pressure_r_cache(nullptr)
-      , velocity_r_cache(nullptr)
+      , pressure_r_cache(pressure_r_cache)
+      , velocity_r_cache(velocity_r_cache)
       , nm_mapping_info(nm_info)
-      , pressure_r_mortar_cache(pressure_r_cache)
-      , velocity_r_mortar_cache(velocity_r_cache)
       , material_data(material_data)
-      , material_r_cache(nullptr)
-      , material_r_mortar_cache(material_remote_cache)
+      , material_r_cache(material_remote_cache)
     {}
 
     // Function to evaluate the acoustic operator.
     template <typename VectorType>
     void evaluate(VectorType &dst, const VectorType &src) const
     {
-      // TODO:!!!!!!!!!! we should consider to merge pressure_r_mortar and
-      // pressure_r
+      // Update the cached values in corresponding the FERemoteEvaluation
+      // objects.
+      pressure_r_cache->gather_evaluate(src, EvaluationFlags::values);
+      velocity_r_cache->gather_evaluate(src, EvaluationFlags::values);
 
-      if (use_mortaring)
+      if constexpr (use_mortaring)
         {
-          // Update the cached values in corresponding the FERemoteEvaluation
-          // objects.
-          pressure_r_mortar_cache->gather_evaluate(src,
-                                                   EvaluationFlags::values);
-          velocity_r_mortar_cache->gather_evaluate(src,
-                                                   EvaluationFlags::values);
-
           // Perform matrix free loop and choose correct boundary face loop
           // to use Nitsche-type mortaring.
           matrix_free.loop(
@@ -605,11 +579,6 @@ namespace Step89
         }
       else
         {
-          // Update the cached values in corresponding the FERemoteEvaluation
-          // objects.
-          pressure_r_cache->gather_evaluate(src, EvaluationFlags::values);
-          velocity_r_cache->gather_evaluate(src, EvaluationFlags::values);
-
           // Perform matrix free loop and choose correct boundary face loop
           // to use point-to-point interpolation.
           matrix_free.loop(
@@ -674,8 +643,7 @@ namespace Step89
     // as well. This is because we iterate over each side of the non-matching
     // face seperately (similar to a cell
     // centric loop).
-    template <bool weight_neighbor, // TODO:!!!!!!!!!! I would make this an
-                                    // argument
+    template <bool weight_neighbor,
               typename InternalFaceIntegratorPressure,
               typename InternalFaceIntegratorVelocity,
               typename ExternalFaceIntegratorPressure,
@@ -720,14 +688,11 @@ namespace Step89
 
     // This function evaluates the fluxes at faces between cells with differnet
     // materials. This can only happen over non-matching interfaces. Therefore,
-    // it is clear that weight_neighbor=false. TODO:!!!!!!!!!! to make this
-    // function symmetrical, I would make weight_neighbor an argument and assert
-    // that the value is false.
+    // it is clear that weight_neighbor=false.
     template <typename InternalFaceIntegratorPressure,
               typename InternalFaceIntegratorVelocity,
               typename ExternalFaceIntegratorPressure,
-              typename ExternalFaceIntegratorVelocity,
-              typename value_type>
+              typename ExternalFaceIntegratorVelocity>
     void evaluate_face_kernel_inhomogeneous(
       InternalFaceIntegratorPressure &pressure_m,
       InternalFaceIntegratorVelocity &velocity_m,
@@ -735,8 +700,9 @@ namespace Step89
       ExternalFaceIntegratorVelocity &velocity_p,
       const std::pair<typename InternalFaceIntegratorPressure::value_type,
                       typename InternalFaceIntegratorPressure::value_type>
-                                                      &materials,
-      const RemoteMaterialEvaluation<dim, value_type> &material_r) const
+        &materials,
+      const RemoteMaterialEvaluation<dim, Number, remote_value_type>
+        &material_r) const
     {
       // The material at the current cell is constant.
       const auto [c, rho] = materials;
@@ -948,7 +914,7 @@ namespace Step89
 
       // Class that gives access to material at each cell
       MaterialEvaluation       material(matrix_free, *material_data);
-      RemoteMaterialEvaluation material_r_mortar(*material_r_mortar_cache);
+      RemoteMaterialEvaluation material_r_mortar(*material_r_cache);
 
       // Classes which return the correct BC values.
       BCEvalP pressure_bc(pressure_m);
@@ -968,8 +934,8 @@ namespace Step89
       FEPointEvaluation<dim, dim, dim, Number> velocity_m_mortar(
         *nm_mapping_info, matrix_free.get_dof_handler().get_fe(), 1);
 
-      FERemoteEvaluationView pressure_r_mortar(*pressure_r_mortar_cache);
-      FERemoteEvaluationView velocity_r_mortar(*velocity_r_mortar_cache);
+      FERemoteEvaluationView pressure_r_mortar(*pressure_r_cache);
+      FERemoteEvaluationView velocity_r_mortar(*velocity_r_cache);
 
       // Buffer on which FEPointEvaluation is working on.
       AlignedVector<Number> buffer(
@@ -1086,33 +1052,25 @@ namespace Step89
         }
     }
 
-    // Members, needed to evaluate the acoustic operator.
-    const bool use_mortaring;
-
     const MatrixFree<dim, Number> &matrix_free;
 
     // FERemoteEvaluation objects are strored as shared pointers. This way,
     // they can also be used for other operators without caching the values
     // multiple times.
     const std::set<types::boundary_id> remote_face_ids;
-    const std::shared_ptr<FERemoteEvaluation<dim, 1, VectorizedArray<Number>>>
+    const std::shared_ptr<FERemoteEvaluation<dim, 1, remote_value_type>>
       pressure_r_cache;
-    const std::shared_ptr<FERemoteEvaluation<dim, dim, VectorizedArray<Number>>>
+    const std::shared_ptr<FERemoteEvaluation<dim, dim, remote_value_type>>
       velocity_r_cache;
     const std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>>
       nm_mapping_info;
-    const std::shared_ptr<FERemoteEvaluation<dim, 1, Number>>
-      pressure_r_mortar_cache;
-    const std::shared_ptr<FERemoteEvaluation<dim, dim, Number>>
-      velocity_r_mortar_cache;
+
 
     // CellwiseMaterialData is stored as shared pointer with the same
     // argumentation.
     const std::shared_ptr<CellwiseMaterialData<Number>> material_data;
-    const std::shared_ptr<RemoteMaterialCache<dim, VectorizedArray<Number>>>
+    const std::shared_ptr<RemoteMaterialCache<dim, Number, remote_value_type>>
       material_r_cache;
-    const std::shared_ptr<RemoteMaterialCache<dim, Number>>
-      material_r_mortar_cache;
   };
 
   //@sect3{Inverse mass operator}
@@ -1167,7 +1125,7 @@ namespace Step89
   //@sect3{Runge-Kutta timestepping}
   //
   // This class implements a Runge-Kutta scheme of order 2.
-  template <int dim, typename Number>
+  template <int dim, typename Number, typename remote_value_type>
   class RungeKutta2
   {
     using VectorType = LinearAlgebra::distributed::Vector<Number>;
@@ -1177,7 +1135,8 @@ namespace Step89
     RungeKutta2(
       const std::shared_ptr<InverseMassOperator<dim, Number>>
         inverse_mass_operator,
-      const std::shared_ptr<AcousticOperator<dim, Number>> acoustic_operator)
+      const std::shared_ptr<AcousticOperator<dim, Number, remote_value_type>>
+        acoustic_operator)
       : inverse_mass_operator(inverse_mass_operator)
       , acoustic_operator(acoustic_operator)
     {}
@@ -1271,8 +1230,9 @@ namespace Step89
 
     // Needed operators.
     const std::shared_ptr<InverseMassOperator<dim, Number>>
-                                                         inverse_mass_operator;
-    const std::shared_ptr<AcousticOperator<dim, Number>> acoustic_operator;
+      inverse_mass_operator;
+    const std::shared_ptr<AcousticOperator<dim, Number, remote_value_type>>
+      acoustic_operator;
   };
 
 
@@ -1515,16 +1475,18 @@ namespace Step89
                                      face_batch_range,
                                      global_quadrature_vector);
 
+
+    using remote_value_type = VectorizedArray<Number>;
     // Set up FERemoteEvaluation object that accesses the pressure
     // at remote faces.
     const auto pressure_r =
-      std::make_shared<FERemoteEvaluation<dim, 1, VectorizedArray<Number>>>(
+      std::make_shared<FERemoteEvaluation<dim, 1, remote_value_type>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 0);
 
     // Set up FERemoteEvaluation object that accesses the velocity
     // at remote faces.
     const auto velocity_r =
-      std::make_shared<FERemoteEvaluation<dim, dim, VectorizedArray<Number>>>(
+      std::make_shared<FERemoteEvaluation<dim, dim, remote_value_type>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 1);
 
     // Set up cellwise material data.
@@ -1533,12 +1495,12 @@ namespace Step89
 
     // If we have an inhomogenous problem, we have to setup the
     // material handler that accesses the materials at remote faces.
-    std::shared_ptr<RemoteMaterialCache<dim, VectorizedArray<Number>>>
+    std::shared_ptr<RemoteMaterialCache<dim, Number, remote_value_type>>
       material_r_cache = nullptr;
     if (!material_data->is_homogenous())
       {
         material_r_cache =
-          std::make_shared<RemoteMaterialCache<dim, VectorizedArray<Number>>>(
+          std::make_shared<RemoteMaterialCache<dim, Number, remote_value_type>>(
             remote_communicator, tria, materials);
       }
 
@@ -1549,12 +1511,13 @@ namespace Step89
     // Setup the acoustic operator. Using this constructor makes the
     //  operator use point-to-point interpolation.
     const auto acoustic_operator =
-      std::make_shared<AcousticOperator<dim, Number>>(matrix_free,
-                                                      non_matching_faces,
-                                                      pressure_r,
-                                                      velocity_r,
-                                                      material_data,
-                                                      material_r_cache);
+      std::make_shared<AcousticOperator<dim, Number, remote_value_type>>(
+        matrix_free,
+        non_matching_faces,
+        pressure_r,
+        velocity_r,
+        material_data,
+        material_r_cache);
 
     // Compute the the maximum speed of sound, needed for the computation of
     // the time-step size.
@@ -1563,8 +1526,8 @@ namespace Step89
       speed_of_sound_max = std::max(speed_of_sound_max, mat.second.first);
 
     // Set up time integrator.
-    RungeKutta2<dim, Number> time_integrator(inverse_mass_operator,
-                                             acoustic_operator);
+    RungeKutta2<dim, Number, remote_value_type> time_integrator(
+      inverse_mass_operator, acoustic_operator);
 
     // Run time loop with Courant number 0.1.
     time_integrator.run(matrix_free,
@@ -1778,16 +1741,18 @@ namespace Step89
       matrix_free.get_dof_handler().get_triangulation().active_cell_iterators(),
       global_quadrature_vector);
 
+    using remote_value_type = Number;
+
     // Setup FERemoteEvaluation object that accesses the pressure
     // at remote faces.
     const auto pressure_r =
-      std::make_shared<FERemoteEvaluation<dim, 1, Number>>(
+      std::make_shared<FERemoteEvaluation<dim, 1, remote_value_type>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 0);
 
     // Setup FERemoteEvaluation object that accesses the velocity
     // at remote faces.
     const auto velocity_r =
-      std::make_shared<FERemoteEvaluation<dim, dim, Number>>(
+      std::make_shared<FERemoteEvaluation<dim, dim, remote_value_type>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 1);
 
     // Setup cellwise material data.
@@ -1796,12 +1761,13 @@ namespace Step89
 
     // If we have an inhomogenous problem, we have to setup the
     // material handler that accesses the materials at remote faces.
-    std::shared_ptr<RemoteMaterialCache<dim, Number>> material_r_cache =
-      nullptr;
+    std::shared_ptr<RemoteMaterialCache<dim, Number, remote_value_type>>
+      material_r_cache = nullptr;
     if (!material_data->is_homogenous())
       {
-        material_r_cache = std::make_shared<RemoteMaterialCache<dim, Number>>(
-          remote_communicator, tria, materials);
+        material_r_cache =
+          std::make_shared<RemoteMaterialCache<dim, Number, Number>>(
+            remote_communicator, tria, materials);
       }
 
     // Setup inverse mass operator.
@@ -1811,13 +1777,15 @@ namespace Step89
     // Setup the acoustic operator. Using this constructor makes the
     // operator use Nitsche-type mortaring.
     const auto acoustic_operator =
-      std::make_shared<AcousticOperator<dim, Number>>(matrix_free,
-                                                      non_matching_faces,
-                                                      nm_mapping_info,
-                                                      pressure_r,
-                                                      velocity_r,
-                                                      material_data,
-                                                      material_r_cache);
+      std::make_shared<AcousticOperator<dim, Number, remote_value_type>>(
+        matrix_free,
+        non_matching_faces,
+
+        pressure_r,
+        velocity_r,
+        material_data,
+        material_r_cache,
+        nm_mapping_info);
 
     // Compute the the maximum speed of sound, needed for the computation of
     // the time-step size.
@@ -1829,8 +1797,8 @@ namespace Step89
       std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
 
     // Setup time integrator.
-    RungeKutta2<dim, Number> time_integrator(inverse_mass_operator,
-                                             acoustic_operator);
+    RungeKutta2<dim, Number, remote_value_type> time_integrator(
+      inverse_mass_operator, acoustic_operator);
 
     // Run time loop with Courant number 0.1.
     time_integrator.run(matrix_free,
