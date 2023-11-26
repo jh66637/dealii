@@ -27,7 +27,6 @@
 
 #include <variant>
 
-
 DEAL_II_NAMESPACE_OPEN
 
 namespace internal
@@ -745,8 +744,6 @@ private:
    */
   const VectorTools::EvaluationFlags::EvaluationFlags vt_flags;
 };
-
-
 
 DEAL_II_NAMESPACE_CLOSE
 
