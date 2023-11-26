@@ -1321,6 +1321,11 @@ namespace Step89
 
         // Iterate over the boundary faces.
         // TODO:!!!!!!!! why do results differ if run with MPI?!
+        // IT HAS TO BE EITHER THIS SETUP; REINIT_FACES OR COPY DATA
+        // DEBUG BY PROVDIDING INITIAL CONDITION OF VELOCITY THAT IS
+        // THE COODRINATES AND CHECK IF QUADRATURE POINTS AND REMOTE
+        // VALUES MATCH!
+        // THIS IS THE LAST TODO BEFORE FILING A PR.
         for (unsigned int bface = 0;
              bface < face_batch_range.second - face_batch_range.first;
              ++bface)
