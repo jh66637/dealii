@@ -68,7 +68,8 @@ namespace internal
     /**
      * Get a pointer to data at index.
      */
-    unsigned int get_shift(const unsigned int index) const
+    unsigned int
+    get_shift(const unsigned int index) const
     {
       Assert(ptrs_ptrs.size() == 0, ExcMessage("Two level CRS set up"));
 
@@ -83,8 +84,9 @@ namespace internal
     /**
      * Get a pointer to data at, e.g. (cell_index, face_number).
      */
-    unsigned int get_shift(const unsigned int cell_index,
-                           const unsigned int face_number) const
+    unsigned int
+    get_shift(const unsigned int cell_index,
+              const unsigned int face_number) const
     {
       Assert(ptrs_ptrs.size() > 0, ExcMessage("No two level CRS set up"));
 
@@ -105,7 +107,8 @@ namespace internal
     /**
      * Get the number of stored values.
      */
-    unsigned int size() const
+    unsigned int
+    size() const
     {
       Assert(ptrs.size() > 0, ExcInternalError());
       return ptrs.back();
@@ -148,7 +151,8 @@ namespace internal
      * Get the value at quadrature point @p q. The entity on which the values
      * are defined is set via `reinit()`.
      */
-    const auto get_value(const unsigned int q) const
+    const auto
+    get_value(const unsigned int q) const
     {
       Assert(data_offset != numbers::invalid_unsigned_int,
              ExcMessage("reinit() not called."));
@@ -160,7 +164,8 @@ namespace internal
      * Get the gradients at quadrature point @p q. The entity on which the
      * gradients are defined is set via `reinit()`.
      */
-    const auto get_gradient(const unsigned int q) const
+    const auto
+    get_gradient(const unsigned int q) const
     {
       Assert(data_offset != numbers::invalid_unsigned_int,
              ExcMessage("reinit() not called."));
@@ -173,7 +178,8 @@ namespace internal
      * Set entity index at which quadrature points are accessed. This can, e.g.,
      * a cell index, a cell batch index, or a face batch index.
      */
-    void reinit(const unsigned int index)
+    void
+    reinit(const unsigned int index)
     {
       data_offset = view.get_shift(index);
     }
@@ -181,7 +187,8 @@ namespace internal
     /**
      * Set cell and face_number at which quadrature points are accessed.
      */
-    void reinit(const unsigned int cell_index, const unsigned int face_number)
+    void
+    reinit(const unsigned int cell_index, const unsigned int face_number)
     {
       data_offset = view.get_shift(cell_index, face_number);
     }
@@ -222,7 +229,8 @@ struct FERemoteCommunicationObjectEntityBatches
   std::vector<std::pair<unsigned int, unsigned int>> batch_id_n_entities;
   std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>> rpe;
 
-  std::vector<std::pair<unsigned int, unsigned int>> get_pntrs() const
+  std::vector<std::pair<unsigned int, unsigned int>>
+  get_pntrs() const
   {
     return batch_id_n_entities;
   };
@@ -240,7 +248,8 @@ struct FERemoteCommunicationObjectCells
   std::vector<typename Triangulation<dim>::cell_iterator>     cells;
   std::shared_ptr<Utilities::MPI::RemotePointEvaluation<dim>> rpe;
 
-  std::vector<typename Triangulation<dim>::cell_iterator> get_pntrs() const
+  std::vector<typename Triangulation<dim>::cell_iterator>
+  get_pntrs() const
   {
     return cells;
   };
@@ -315,7 +324,8 @@ public:
    * cells.
    */
   template <typename Iterator>
-  void reinit_faces(
+  void
+  reinit_faces(
     const std::vector<FERemoteCommunicationObjectFaces<dim>> &comm_objects,
     const IteratorRange<Iterator>                       &cell_iterator_range,
     const std::vector<std::vector<Quadrature<dim - 1>>> &quadrature_vector)
@@ -366,7 +376,8 @@ public:
             typename PrecomputedFEEvaluationDataType,
             typename MeshType,
             typename VectorType>
-  void update_ghost_values(
+  void
+  update_ghost_values(
     PrecomputedFEEvaluationDataType       &dst,
     const MeshType                        &mesh,
     const VectorType                      &src,
@@ -418,7 +429,8 @@ public:
   /**
    * Provide access to @c PrecomputedFEEvaluationDataView.
    */
-  const internal::PrecomputedFEEvaluationDataView &get_view() const
+  const internal::PrecomputedFEEvaluationDataView &
+  get_view() const
   {
     return view;
   }
@@ -444,7 +456,8 @@ private:
    * FERemoteCommunicationObjectCells.
    */
   template <typename T1, typename T2>
-  void copy_data(
+  void
+  copy_data(
     std::vector<T1>                                               &dst,
     const std::vector<T2>                                         &src,
     const std::vector<typename Triangulation<dim>::cell_iterator> &cells) const
@@ -470,7 +483,8 @@ private:
    * FERemoteCommunicationObjectFaces.
    */
   template <typename T1, typename T2>
-  void copy_data(
+  void
+  copy_data(
     std::vector<T1>                            &dst,
     const std::vector<T2>                      &src,
     const std::vector<std::pair<typename Triangulation<dim>::cell_iterator,
@@ -498,10 +512,11 @@ private:
    * FERemoteCommunicationObjectEntityBatches.
    */
   template <typename T1, typename T2>
-  void copy_data(std::vector<T1>       &dst,
-                 const std::vector<T2> &src,
-                 const std::vector<std::pair<unsigned int, unsigned int>>
-                   &batch_id_n_entities) const
+  void
+  copy_data(std::vector<T1>       &dst,
+            const std::vector<T2> &src,
+            const std::vector<std::pair<unsigned int, unsigned int>>
+              &batch_id_n_entities) const
   {
     dst.resize(view.size());
 
@@ -525,9 +540,10 @@ private:
    * Copy data to the correct position in a @c VectorizedArray.
    */
   template <typename T1, std::size_t n_lanes>
-  void copy_data_entries(VectorizedArray<T1, n_lanes> &dst,
-                         const unsigned int            v,
-                         const T1                     &src) const
+  void
+  copy_data_entries(VectorizedArray<T1, n_lanes> &dst,
+                    const unsigned int            v,
+                    const T1                     &src) const
   {
     AssertIndexRange(v, n_lanes);
 
@@ -538,9 +554,10 @@ private:
    * Similar as @c copy_data_entries() above.
    */
   template <typename T1, int rank_, std::size_t n_lanes, int dim_>
-  void copy_data_entries(Tensor<rank_, dim_, VectorizedArray<T1, n_lanes>> &dst,
-                         const unsigned int                                 v,
-                         const Tensor<rank_, dim_, T1> &src) const
+  void
+  copy_data_entries(Tensor<rank_, dim_, VectorizedArray<T1, n_lanes>> &dst,
+                    const unsigned int                                 v,
+                    const Tensor<rank_, dim_, T1> &src) const
   {
     AssertIndexRange(v, n_lanes);
 
@@ -565,7 +582,8 @@ private:
             std::size_t n_lanes,
             int         n_components_,
             int         dim_>
-  void copy_data_entries(
+  void
+  copy_data_entries(
     Tensor<rank_,
            n_components_,
            Tensor<rank_, dim_, VectorizedArray<T1, n_lanes>>>   &dst,
@@ -590,7 +608,8 @@ private:
    * implemented for given types.
    */
   template <typename T1, typename T2>
-  void copy_data_entries(T1 &, const unsigned int, const T2 &) const
+  void
+  copy_data_entries(T1 &, const unsigned int, const T2 &) const
   {
     Assert(false,
            ExcMessage(
@@ -648,8 +667,9 @@ public:
    * EvaluationFlags::values and EvaluationFlags::gradients.
    */
   template <typename VectorType>
-  void gather_evaluate(const VectorType                      &src,
-                       const EvaluationFlags::EvaluationFlags flags)
+  void
+  gather_evaluate(const VectorType                      &src,
+                  const EvaluationFlags::EvaluationFlags flags)
   {
     if (tria)
       {
@@ -697,7 +717,8 @@ private:
   /**
    * Use Triangulation as MeshType.
    */
-  void set_mesh(const Triangulation<dim> &tria)
+  void
+  set_mesh(const Triangulation<dim> &tria)
   {
     this->tria = &tria;
   }
@@ -705,7 +726,8 @@ private:
   /**
    * Use DoFHandler as MeshType.
    */
-  void set_mesh(const DoFHandler<dim> &dof_handler)
+  void
+  set_mesh(const DoFHandler<dim> &dof_handler)
   {
     this->dof_handler = &dof_handler;
   }
