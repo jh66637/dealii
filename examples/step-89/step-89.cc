@@ -432,6 +432,7 @@ namespace Step89
   };
 
 
+  //TODO:!!!!!!!!!!!! REMOTE MAT HANDLER CURRENTLY NOT WORKING
   // To be able to access the remote material data in a thread safe way
   // @c RemoteMaterialEvaluation is used (see MaterialEvaluation).
   template <int dim, typename Number, typename value_type>
@@ -440,38 +441,40 @@ namespace Step89
   public:
     RemoteMaterialEvaluation(
       const RemoteMaterialCache<dim, Number, value_type> &cache)
-      : phi_c(cache.get_speed_of_sound_cache())
-      , phi_rho(cache.get_density_cache()){};
+      // : phi_c(cache.get_speed_of_sound_cache())
+      // , phi_rho(cache.get_density_cache())
+      {};
 
     // In case of point-to-point interpolation we need to call
     // the underlying reinit functions with face batch ids.
     void reinit_face(const unsigned int face)
     {
-      phi_c.reinit(face);
-      phi_rho.reinit(face);
+      // phi_c.reinit(face);
+      // phi_rho.reinit(face);
     }
 
     // In case of mortaring we need to call the underlying reinit
     // functions with the cell index and face number.
     void reinit_face(const unsigned int cell, const unsigned int face)
     {
-      phi_c.reinit(cell, face);
-      phi_rho.reinit(cell, face);
+      // phi_c.reinit(cell, face);
+      // phi_rho.reinit(cell, face);
     }
 
     // Return the materials in the current quadrature point. The
     // return type chagnes dependent on the use of mortaring or
     // point-to-point interpolation. We simply use auto to automatically
     // choose the correct return type.
-    auto get_materials(unsigned int q) const
+    std::pair<value_type, value_type> get_materials(unsigned int q) const
     {
-      return std::make_pair(phi_c.get_value(q), phi_rho.get_value(q));
+      // return std::make_pair(phi_c.get_value(q), phi_rho.get_value(q));
+      return {};
     }
 
   private:
     // FERemoteEvaluation objects with cached values.
-    FERemoteEvaluationView<dim, 1, value_type> phi_c;
-    FERemoteEvaluationView<dim, 1, value_type> phi_rho;
+    // FERemoteEvaluationView<dim, 1, value_type> phi_c;
+    // FERemoteEvaluationView<dim, 1, value_type> phi_rho;
   };
 
 
@@ -818,7 +821,9 @@ namespace Step89
       BCEvalP pressure_bc(pressure_m);
       BCEvalU velocity_bc(velocity_m);
 
-      FERemoteEvaluationView pressure_r(*pressure_r_cache);
+      // FERemoteEvaluationView pressure_r(*pressure_r_cache);
+      //TODO:!!!!!!!!!!!!!!!! make all of the data view objects work this way
+      auto pressure_r= pressure_r_cache->get_accessor();
       FERemoteEvaluationView velocity_r(*velocity_r_cache);
 
       for (unsigned int face = face_range.first; face < face_range.second;
@@ -1470,6 +1475,7 @@ namespace Step89
       }
 
     // Renit the communicator with the communication objects.
+    // FERemoteEvaluationCommunicator<dim> remote_communicator;
     FERemoteEvaluationCommunicator<dim> remote_communicator;
     remote_communicator.reinit_faces(comm_objects,
                                      face_batch_range,
@@ -1879,6 +1885,8 @@ int main(int argc, char *argv[])
 
   pcout << " - Point-to-point interpolation: " << std::endl;
   // Run vibrating membrane testcase using point-to-point interpolation:
+
+  //TODO:!!!!!!!! why do results differ if run with MPI?!
   Step89::run_with_point_to_point_interpolation(
     matrix_free,
     non_matching_faces,
