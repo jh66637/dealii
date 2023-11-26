@@ -58,13 +58,6 @@ namespace Step89
 {
   using namespace dealii;
 
-  // @sect3{Set alias for FERemoteEvaluation}
-  //
-  // Define an alias for FERemoteEvaluationCache to be able to skip typing
-  // template parameters that do not change within this tutorial.
-  template <int n_components, int dim, typename Number>
-  using FERemoteEvalCache = FERemoteEvaluationCache<dim, n_components, Number>;
-
   // @sect3{Initial conditions for vibrating membrane}
   //
   // Function that provides the initial condition for the vibrating membrane
@@ -434,8 +427,8 @@ namespace Step89
 
   private:
     // FERemoteEvaluation objects with cached values.
-    FERemoteEvalCache<1, dim, value_type> phi_c_cache;
-    FERemoteEvalCache<1, dim, value_type> phi_rho_cache;
+    FERemoteEvaluation<dim, 1, value_type> phi_c_cache;
+    FERemoteEvaluation<dim, 1, value_type> phi_rho_cache;
   };
 
 
@@ -476,8 +469,8 @@ namespace Step89
 
   private:
     // FERemoteEvaluation objects with cached values.
-    FERemoteEvaluation<dim, 1, value_type> phi_c;
-    FERemoteEvaluation<dim, 1, value_type> phi_rho;
+    FERemoteEvaluationView<dim, 1, value_type> phi_c;
+    FERemoteEvaluationView<dim, 1, value_type> phi_rho;
   };
 
 
@@ -538,9 +531,9 @@ namespace Step89
     AcousticOperator(
       const MatrixFree<dim, Number>      &matrix_free_in,
       const std::set<types::boundary_id> &non_matching_face_ids,
-      std::shared_ptr<FERemoteEvalCache<1, dim, VectorizedArray<Number>>>
+      std::shared_ptr<FERemoteEvaluation<dim, 1, VectorizedArray<Number>>>
         pressure_r_cache,
-      std::shared_ptr<FERemoteEvalCache<dim, dim, VectorizedArray<Number>>>
+      std::shared_ptr<FERemoteEvaluation<dim, dim, VectorizedArray<Number>>>
                                                     velocity_r_cache,
       std::shared_ptr<CellwiseMaterialData<Number>> material_data,
       std::shared_ptr<RemoteMaterialCache<dim, VectorizedArray<Number>>>
@@ -564,9 +557,9 @@ namespace Step89
       const MatrixFree<dim, Number>      &matrix_free_in,
       const std::set<types::boundary_id> &non_matching_face_ids,
       std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>> nm_info,
-      std::shared_ptr<FERemoteEvalCache<1, dim, Number>>   pressure_r_cache,
-      std::shared_ptr<FERemoteEvalCache<dim, dim, Number>> velocity_r_cache,
-      std::shared_ptr<CellwiseMaterialData<Number>>        material_data,
+      std::shared_ptr<FERemoteEvaluation<dim, 1, Number>>   pressure_r_cache,
+      std::shared_ptr<FERemoteEvaluation<dim, dim, Number>> velocity_r_cache,
+      std::shared_ptr<CellwiseMaterialData<Number>>         material_data,
       std::shared_ptr<RemoteMaterialCache<dim, Number>> material_remote_cache)
       : use_mortaring(true)
       , matrix_free(matrix_free_in)
@@ -859,8 +852,8 @@ namespace Step89
       BCEvalP pressure_bc(pressure_m);
       BCEvalU velocity_bc(velocity_m);
 
-      FERemoteEvaluation pressure_r(*pressure_r_cache);
-      FERemoteEvaluation velocity_r(*velocity_r_cache);
+      FERemoteEvaluationView pressure_r(*pressure_r_cache);
+      FERemoteEvaluationView velocity_r(*velocity_r_cache);
 
       for (unsigned int face = face_range.first; face < face_range.second;
            face++)
@@ -975,8 +968,8 @@ namespace Step89
       FEPointEvaluation<dim, dim, dim, Number> velocity_m_mortar(
         *nm_mapping_info, matrix_free.get_dof_handler().get_fe(), 1);
 
-      FERemoteEvaluation pressure_r_mortar(*pressure_r_mortar_cache);
-      FERemoteEvaluation velocity_r_mortar(*velocity_r_mortar_cache);
+      FERemoteEvaluationView pressure_r_mortar(*pressure_r_mortar_cache);
+      FERemoteEvaluationView velocity_r_mortar(*velocity_r_mortar_cache);
 
       // Buffer on which FEPointEvaluation is working on.
       AlignedVector<Number> buffer(
@@ -1102,15 +1095,15 @@ namespace Step89
     // they can also be used for other operators without caching the values
     // multiple times.
     const std::set<types::boundary_id> remote_face_ids;
-    const std::shared_ptr<FERemoteEvalCache<1, dim, VectorizedArray<Number>>>
+    const std::shared_ptr<FERemoteEvaluation<dim, 1, VectorizedArray<Number>>>
       pressure_r_cache;
-    const std::shared_ptr<FERemoteEvalCache<dim, dim, VectorizedArray<Number>>>
+    const std::shared_ptr<FERemoteEvaluation<dim, dim, VectorizedArray<Number>>>
       velocity_r_cache;
     const std::shared_ptr<NonMatching::MappingInfo<dim, dim, Number>>
       nm_mapping_info;
-    const std::shared_ptr<FERemoteEvalCache<1, dim, Number>>
+    const std::shared_ptr<FERemoteEvaluation<dim, 1, Number>>
       pressure_r_mortar_cache;
-    const std::shared_ptr<FERemoteEvalCache<dim, dim, Number>>
+    const std::shared_ptr<FERemoteEvaluation<dim, dim, Number>>
       velocity_r_mortar_cache;
 
     // CellwiseMaterialData is stored as shared pointer with the same
@@ -1525,13 +1518,13 @@ namespace Step89
     // Set up FERemoteEvaluation object that accesses the pressure
     // at remote faces.
     const auto pressure_r =
-      std::make_shared<FERemoteEvalCache<1, dim, VectorizedArray<Number>>>(
+      std::make_shared<FERemoteEvaluation<dim, 1, VectorizedArray<Number>>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 0);
 
     // Set up FERemoteEvaluation object that accesses the velocity
     // at remote faces.
     const auto velocity_r =
-      std::make_shared<FERemoteEvalCache<dim, dim, VectorizedArray<Number>>>(
+      std::make_shared<FERemoteEvaluation<dim, dim, VectorizedArray<Number>>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 1);
 
     // Set up cellwise material data.
@@ -1787,13 +1780,14 @@ namespace Step89
 
     // Setup FERemoteEvaluation object that accesses the pressure
     // at remote faces.
-    const auto pressure_r = std::make_shared<FERemoteEvalCache<1, dim, Number>>(
-      remote_communicator, dof_handler, /*first_selected_component*/ 0);
+    const auto pressure_r =
+      std::make_shared<FERemoteEvaluation<dim, 1, Number>>(
+        remote_communicator, dof_handler, /*first_selected_component*/ 0);
 
     // Setup FERemoteEvaluation object that accesses the velocity
     // at remote faces.
     const auto velocity_r =
-      std::make_shared<FERemoteEvalCache<dim, dim, Number>>(
+      std::make_shared<FERemoteEvaluation<dim, dim, Number>>(
         remote_communicator, dof_handler, /*first_selected_component*/ 1);
 
     // Setup cellwise material data.

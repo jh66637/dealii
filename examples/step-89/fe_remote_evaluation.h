@@ -521,7 +521,7 @@ private:
  * FERemoteEvaluationCommunicator is independent of @p n_components.
  */
 template <int dim, int n_components, typename value_type>
-class FERemoteEvaluationCache
+class FERemoteEvaluation
 {
 public:
   /**
@@ -538,11 +538,11 @@ public:
    * DoFHandlers with multiple components.
    */
   template <typename MeshType>
-  FERemoteEvaluationCache(const FERemoteEvaluationCommunicator<dim> &comm,
-                          const MeshType                            &mesh,
-                          const unsigned int first_selected_component = 0,
-                          const VectorTools::EvaluationFlags::EvaluationFlags
-                            vt_flags = VectorTools::EvaluationFlags::avg)
+  FERemoteEvaluation(const FERemoteEvaluationCommunicator<dim> &comm,
+                     const MeshType                            &mesh,
+                     const unsigned int first_selected_component = 0,
+                     const VectorTools::EvaluationFlags::EvaluationFlags
+                       vt_flags = VectorTools::EvaluationFlags::avg)
     : comm(&comm)
     , first_selected_component(first_selected_component)
     , vt_flags(vt_flags)
@@ -677,11 +677,11 @@ private:
 
 
 template <int dim, int n_components, typename value_type>
-class FERemoteEvaluation
+class FERemoteEvaluationView
 {
 public:
-  FERemoteEvaluation(
-    const FERemoteEvaluationCache<dim, n_components, value_type> &cache)
+  FERemoteEvaluationView(
+    const FERemoteEvaluation<dim, n_components, value_type> &cache)
     : cache(cache)
     , data_offset(numbers::invalid_unsigned_int){};
 
@@ -722,7 +722,7 @@ public:
   }
 
 private:
-  const FERemoteEvaluationCache<dim, n_components, value_type> &cache;
+  const FERemoteEvaluation<dim, n_components, value_type> &cache;
 
   /**
    * Offset to data after last call of `reinit()`.
