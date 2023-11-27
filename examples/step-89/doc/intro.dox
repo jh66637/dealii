@@ -128,13 +128,17 @@ on the relevant differences.
 // memory allocation/deallocation. At this point, remote_communicator is assumed to be initialized.
 FERemoteEvaluation<dim,Number> phi_p(remote_communicator);
 
-// Cache needed values before the actual matrix-free loop.
-phi_p.gather_evaluate(src, EvaluationFlags::values);
+// Cache needed values before the actual matrix-free loop (on one thread).
+phi_p_evaluator.gather_evaluate(src, EvaluationFlags::values);
 
 const auto boundary_function =
   [&](const auto &data, auto &dst, const auto &src, const auto face_range) {
 
     FEFaceEvaluation phi_m(data, true);
+    // To access the values in a thread safe way each thread has
+    // to create a own accessor object. A small helper function
+    // provides the accessor.
+    auto phi_p = phi_p_evaluator.get_data_accessor();
 
     for (unsigned int f = face_range.first; f < face_range.second; ++f)
     {
@@ -154,11 +158,9 @@ matrix_free.template loop<VectorType, VectorType>({}, {}, boundary_function, dst
 FERemoteCommunicator internally manages the update of ghost values over non-matching interfaces and keeps track of the
 mapping between quadrature point index and correspoding values/gradients. The update of the values/gradients happens
 <i>before</i> the actual matrix-free loop. FERemoteCommunicator, as well as FERemoteEvaluation behaves differently for
-different template parameters. Most of the template parameters are standard and do not have to be explained.
-@c is_face is used to determine if FERemoteEvaluation works on faces or cells. Within this tutorial we are only considering
-surface coupling and thus @c is_face=true. @c use_matrix_free_batches is used to ensure, the class can be used in
-combination with FEPointEvaluation, where @c use_matrix_free_batches=false, as well as FEEvaluation and FEFaceEvaluation,
-where @c use_matrix_free_batches=true.
+the given template parameter @c value_type. If we want to access values at arbitrary points (e.g. in combination with
+@c FEPointEvaluation) @c value_type=Number. If the values are defined at quadrature points of a @c FEEvaluation object
+it is possible to get the values at the quadrature points of entity-<i>batches</i> and @c value_type=VectorizedArray<Number>.
 
 <h3>Overview</h3>
 
