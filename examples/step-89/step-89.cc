@@ -1325,7 +1325,7 @@ namespace Step89
         // DEBUG BY PROVDIDING INITIAL CONDITION OF VELOCITY THAT IS
         // THE COODRINATES AND CHECK IF QUADRATURE POINTS AND REMOTE
         // VALUES MATCH!
-        // THIS IS THE LAST TODO BEFORE FILING A PR.
+        // THIS IS THE LAST TODO BEFORE FINISHING DOCUMENATATION AND FILING A PR.
         for (unsigned int bface = 0;
              bface < face_batch_range.second - face_batch_range.first;
              ++bface)
