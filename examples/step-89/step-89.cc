@@ -1322,7 +1322,7 @@ namespace Step89
         // Iterate over the boundary faces.
         // TODO: There is a problem if run with 1 MPI rank.
         // Running with multiple cores works perfectly. I will investigate
-        // this problem.
+        // this problem. This should be fixed before merging.
         for (unsigned int bface = 0;
              bface < face_batch_range.second - face_batch_range.first;
              ++bface)
