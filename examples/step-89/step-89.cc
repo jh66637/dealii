@@ -1320,12 +1320,9 @@ namespace Step89
         FEFaceEvaluation<dim, -1, 0, 1, Number> phi(matrix_free, true, 0, 0, 0);
 
         // Iterate over the boundary faces.
-        // TODO:!!!!!!!! why do results differ if run with MPI?!
-        // IT HAS TO BE EITHER THIS SETUP; REINIT_FACES OR COPY DATA
-        // DEBUG BY PROVDIDING INITIAL CONDITION OF VELOCITY THAT IS
-        // THE COODRINATES AND CHECK IF QUADRATURE POINTS AND REMOTE
-        // VALUES MATCH!
-        // THIS IS THE LAST TODO BEFORE FINISHING DOCUMENATATION AND FILING A PR.
+        // TODO: There is a problem if run with 1 MPI rank.
+        // Running with multiple cores works perfectly. I will investigate
+        // this problem.
         for (unsigned int bface = 0;
              bface < face_batch_range.second - face_batch_range.first;
              ++bface)
